@@ -68,6 +68,53 @@ function _lag_grad(m, xv, yv)
     return g .+ J' * yv
 end
 
+# ── add_reduce fixtures ───────────────────────────────────────────────────────
+#
+# Reduction model: e[i] = x[i]^2 + sin(x[i+1]) buffered, then a ragged weighted
+# reduction with variable terms and per-slot init:
+#   v[j] = init[j] + 2 e[j] + 3 e[j+1] + 0.5 x[j]  (j = 1:4)
+#   v[1] += 4 e[4] + 0.25 x[5];  v[3] -= e[1]
+# consumed nonlinearly by the objective and constraints.
+_red_elt(x, i) = x[i]^2 + sin(x[i + 1])
+function _red_vexpr(x, j)
+    base = 1.5 + 2.0 * _red_elt(x, j) + 3.0 * _red_elt(x, j + 1) + 0.5 * x[j]
+    return j == 1 ? base + 4.0 * _red_elt(x, 4) + 0.25 * x[5] :
+           j == 3 ? base - 1.0 * _red_elt(x, 1) : base
+end
+
+# Inlined reference: one concrete tree per j (a generator traces ONE symbolic
+# tree, so the ragged per-j branches must be baked in with literal indices).
+function _red_ref_model()
+    c = ExaCore(concrete = Val(true))
+    c, x = add_var(c, 6)
+    for j in 1:4
+        c, _ = add_obj(c, (_red_vexpr(x, j)^2 + exp(_red_vexpr(x, j) / 10) for _ in 1:1))
+    end
+    for j in 1:4
+        c, _ = add_con(c, (_red_vexpr(x, j) * x[j+1] + x[j]^2 for _ in 1:1))
+    end
+    return ExaModel(c)
+end
+
+function _red_core(backend)
+    c = backend === nothing ? ExaCore(concrete = Val(true)) :
+        ExaCore(concrete = Val(true), backend = backend)
+    c, x = add_var(c, 6)
+    c, e = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:5); buffered = true)
+    pairs = vcat(
+        [j => 2.0 * e[j] for j in 1:4],
+        [j => 3.0 * e[j+1] for j in 1:4],
+        [1 => 4.0 * e[4], 3 => -1.0 * e[1]],
+        [j => 0.5 * x[j] for j in 1:4],
+        [1 => 0.25 * x[5]],
+    )
+    c, v = add_reduce(c, 4, pairs; init = 1.5)
+    c, _ = add_obj(c, (v[j]^2 + exp(v[j] / 10) for j in 1:4))
+    c, _ = add_con(c, (v[j] * x[j+1] + x[j]^2 for j in 1:4))
+    return c
+end
+_red_model() = ExaModel(_red_core(nothing))
+
 # Device-backend comparison: the same nested model built on a KA backend must
 # match the host inlined reference for every evaluation entry point.
 function _device_tests(backend)
@@ -391,9 +438,218 @@ function runtests(; backends = Any[CPU()])
         @test d1 ≈ d0 rtol = 1e-14
     end
 
+    # add_reduce: ragged weighted reduction over slots and variables with init,
+    # duplicate (slot, source) terms, nonlinear consumers — against the inlined
+    # per-group reference.
+    @testset "add_reduce (vs inlined reference)" begin
+        m0 = _red_ref_model()
+        m1 = _red_model()
+        xv = [0.3 + 0.1i for i in 1:6]
+        yv = [1.0, -2.0, 0.5, 3.0]
+
+        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1e-14
+        c0 = zeros(4); c1 = zeros(4)
+        NLPModels.cons_nln!(m0, xv, c0)
+        NLPModels.cons_nln!(m1, xv, c1)
+        @test c1 ≈ c0 rtol = 1e-14
+        d0 = zeros(6); d1 = zeros(6)
+        NLPModels.grad!(m0, xv, d0)
+        NLPModels.grad!(m1, xv, d1)
+        @test d1 ≈ d0 rtol = 1e-13
+        @test _dense_jac(m1, xv) ≈ _dense_jac(m0, xv) rtol = 1e-13
+        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1e-13
+        @test _dense_hess(m1, xv, yv; obj_weight = 0.3) ≈
+              _dense_hess(m0, xv, yv; obj_weight = 0.3) rtol = 1e-13
+        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1e-13
+
+        # matrix-vector products
+        vv = [cos(5i) for i in 1:6]
+        vc = [sin(7i) for i in 1:4]
+        Jv0 = zeros(4); Jv1 = zeros(4)
+        NLPModels.jprod_nln!(m0, xv, vv, Jv0)
+        NLPModels.jprod_nln!(m1, xv, vv, Jv1)
+        @test Jv1 ≈ Jv0 rtol = 1e-13
+        Jtv0 = zeros(6); Jtv1 = zeros(6)
+        NLPModels.jtprod_nln!(m0, xv, vc, Jtv0)
+        NLPModels.jtprod_nln!(m1, xv, vc, Jtv1)
+        @test Jtv1 ≈ Jtv0 rtol = 1e-13
+        Hv0 = zeros(6); Hv1 = zeros(6)
+        NLPModels.hprod!(m0, xv, yv, vv, Hv0; obj_weight = 0.7)
+        NLPModels.hprod!(m1, xv, yv, vv, Hv1; obj_weight = 0.7)
+        @test Hv1 ≈ Hv0 rtol = 1e-13
+    end
+
+    # Chained reductions interleaved with traced stages, in both directions
+    # (reduce over stage slots, stage over reduce slots, reduce over reduce +
+    # stage + variable).  No inlined reference is possible (ragged), so check
+    # against finite differences.
+    @testset "add_reduce (chained, FD)" begin
+        c = ExaCore(concrete = Val(true))
+        c, x = add_var(c, 6)
+        c, e = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:5); buffered = true)
+        c, r1 = add_reduce(c, 3, vcat([j => 2.0 * e[j] for j in 1:3],
+                                      [j => -0.5 * e[j+2] for j in 1:3],
+                                      [2 => 0.3 * x[6]]); init = [0.1, 0.2, 0.3])
+        c, t = add_expr(c, (r1[i] * r1[i+1] + exp(r1[i] / 10) for i in 1:2); buffered = true)
+        c, r2 = add_reduce(c, 2, vcat([j => 1.5 * t[j] for j in 1:2],
+                                      [j => 0.25 * r1[j] for j in 1:2],
+                                      [1 => 0.5 * x[1]]))
+        c, _ = add_obj(c, (r2[j]^2 + cos(r2[j]) for j in 1:2))
+        c, _ = add_con(c, (r2[j] * x[j+1] + r1[j]^2 for j in 1:2))
+        m = ExaModel(c)
+
+        xv = [0.2 + 0.07i for i in 1:6]
+        yv = [1.3, -0.8]
+        h = 1e-6
+        pert(k, d) = [xv[i] + (i == k ? d : 0.0) for i in 1:6]
+
+        g = zeros(6)
+        NLPModels.grad!(m, xv, g)
+        fd = [(NLPModels.obj(m, pert(k, h)) - NLPModels.obj(m, pert(k, -h))) / 2h for k in 1:6]
+        @test g ≈ fd rtol = 1e-5
+
+        J = _dense_jac(m, xv)
+        for k in 1:6
+            gp = zeros(2); gm = zeros(2)
+            NLPModels.cons_nln!(m, pert(k, h), gp)
+            NLPModels.cons_nln!(m, pert(k, -h), gm)
+            @test J[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-4
+        end
+
+        H = _dense_hess(m, xv, yv)
+        for k in 1:6
+            gp = _lag_grad(m, pert(k, h), yv)
+            gm = _lag_grad(m, pert(k, -h), yv)
+            @test H[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-4
+        end
+    end
+
+    # A single group argument summing many elements (the issue-#331 pattern):
+    # v = Σₜ x[2t-1]·x[2t], obj = v² — one element stage, one reduce stage, and
+    # a genuinely dense rank-1 μ·∇v∇vᵀ Hessian block.
+    @testset "add_reduce (single dense group)" begin
+        n = 12
+        c = ExaCore(concrete = Val(true))
+        c, x = add_var(c, 2n)
+        c, s = add_expr(c, (x[2t-1] * x[2t] for t in 1:n); buffered = true)
+        c, v = add_reduce(c, 1, (1 => s[t] for t in 1:n))
+        c, _ = add_obj(c, ((v[d])^2 for d in 1:1))
+        m = ExaModel(c)
+
+        xv = ones(2n)
+        @test NLPModels.obj(m, xv) ≈ Float64(n)^2 rtol = 1e-14
+        g = zeros(2n)
+        NLPModels.grad!(m, xv, g)
+        @test all(≈(2.0 * n), g)
+
+        xv = [0.1 + 0.05i for i in 1:2n]
+        h = 1e-6
+        pert(k, d) = [xv[i] + (i == k ? d : 0.0) for i in 1:2n]
+        H = _dense_hess(m, xv, nothing)
+        for k in 1:2n
+            gp = zeros(2n); gm = zeros(2n)
+            NLPModels.grad!(m, pert(k, h), gp)
+            NLPModels.grad!(m, pert(k, -h), gm)
+            @test H[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-4
+        end
+    end
+
+    @testset "add_reduce (API surface + errors)" begin
+        c = ExaCore(concrete = Val(true))
+        c, x = add_var(c, 4)
+        c, p = add_par(c, 2; value = 1.0)
+        c, s = add_expr(c, (x[i]^2 for i in 1:3); buffered = true)
+
+        # constants fold into init; affine nesting with - / unary minus / division
+        c, v = add_reduce(c, 2, [1 => 2.0 * s[1] + 1.0, 2 => -(s[2] - s[3]) / 2.0, 2 => 0.5])
+        c, _ = add_obj(c, (v[j]^2 for j in 1:2))
+        m = ExaModel(c)
+        xv = [0.5, -0.3, 0.8, 0.1]
+        v1 = 2.0 * xv[1]^2 + 1.0
+        v2 = -(xv[2]^2 - xv[3]^2) / 2.0 + 0.5
+        @test NLPModels.obj(m, xv) ≈ v1^2 + v2^2 rtol = 1e-14
+
+        # non-affine terms, parameter sources, bad indices, init mismatch
+        @test_throws ArgumentError add_reduce(c, 2, [1 => s[1] * s[2]])
+        @test_throws ArgumentError add_reduce(c, 2, [1 => s[1]^2])
+        @test_throws ArgumentError add_reduce(c, 2, [1 => p[1] * s[1]])
+        @test_throws ArgumentError add_reduce(c, 2, [3 => s[1]])
+        @test_throws DimensionMismatch add_reduce(c, 2, [1 => s[1]]; init = [1.0])
+    end
+
+    @testset "add_reduce (solver round-trip)" begin
+        function _red_solve(; reduced = false)
+            c = ExaCore(concrete = Val(true))
+            c, x = add_var(c, 6; start = fill(0.5, 6))
+            if reduced
+                c, e = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:5); buffered = true)
+                c, v = add_reduce(c, 4, vcat([j => 2.0 * e[j] for j in 1:4],
+                                             [j => 3.0 * e[j+1] for j in 1:4],
+                                             [j => 0.5 * x[j] for j in 1:4]); init = 1.5)
+                c, _ = add_obj(c, ((v[j] - 1.0)^2 + 0.1 * x[j]^2 for j in 1:4))
+                c, _ = add_con(c, (v[j] + x[j+2] for j in 1:4); lcon = -10.0, ucon = 10.0)
+            else
+                vex(j) = 1.5 + 2.0 * _red_elt(x, j) + 3.0 * _red_elt(x, j + 1) + 0.5 * x[j]
+                c, _ = add_obj(c, ((vex(j) - 1.0)^2 + 0.1 * x[j]^2 for j in 1:4))
+                c, _ = add_con(c, (vex(j) + x[j+2] for j in 1:4); lcon = -10.0, ucon = 10.0)
+            end
+            return ExaModel(c)
+        end
+        m0 = _red_solve(reduced = false)
+        m1 = _red_solve(reduced = true)
+        r0 = madnlp(m0; print_level = MadNLP.ERROR)
+        r1 = madnlp(m1; print_level = MadNLP.ERROR)
+        @test r1.status == r0.status
+        @test r1.objective ≈ r0.objective rtol = 1e-8
+        @test r1.solution ≈ r0.solution rtol = 1e-6
+    end
+
     for backend in backends
         @testset "Buffered subexpressions (device: $backend)" begin
             _device_tests(backend)
+        end
+        @testset "add_reduce (device: $backend)" begin
+            m0 = _red_ref_model()
+            m1 = ExaModel(_red_core(backend))
+            xh = [0.3 + 0.1i for i in 1:6]
+            xd = copyto!(similar(m1.meta.x0, 6), xh)
+            yh = [1.0, -2.0, 0.5, 3.0]
+            yd = copyto!(similar(m1.meta.x0, 4), yh)
+
+            @test NLPModels.obj(m1, xd) ≈ NLPModels.obj(m0, xh) rtol = 1e-13
+
+            g0 = zeros(4)
+            gd = fill!(similar(m1.meta.x0, 4), 0)
+            NLPModels.cons_nln!(m0, xh, g0)
+            NLPModels.cons_nln!(m1, xd, gd)
+            @test Array(gd) ≈ g0 rtol = 1e-13
+
+            d0 = zeros(6)
+            dd = fill!(similar(m1.meta.x0, 6), 0)
+            NLPModels.grad!(m0, xh, d0)
+            NLPModels.grad!(m1, xd, dd)
+            @test Array(dd) ≈ d0 rtol = 1e-13
+
+            r = zeros(Int, m1.meta.nnzj); cl = zeros(Int, m1.meta.nnzj)
+            NLPModels.jac_structure!(m1, r, cl)
+            vd = fill!(similar(m1.meta.x0, m1.meta.nnzj), 0)
+            NLPModels.jac_coord!(m1, xd, vd)
+            J1 = zeros(4, 6)
+            for (i, j, v) in zip(r, cl, Array(vd))
+                J1[i, j] += v
+            end
+            @test J1 ≈ _dense_jac(m0, xh) rtol = 1e-13
+
+            hr = zeros(Int, m1.meta.nnzh); hc = zeros(Int, m1.meta.nnzh)
+            NLPModels.hess_structure!(m1, hr, hc)
+            hv = fill!(similar(m1.meta.x0, m1.meta.nnzh), 0)
+            NLPModels.hess_coord!(m1, xd, yd, hv; obj_weight = 0.7)
+            H1 = zeros(6, 6)
+            for (i, j, v) in zip(hr, hc, Array(hv))
+                H1[i, j] += v
+                i != j && (H1[j, i] += v)
+            end
+            @test H1 ≈ _dense_hess(m0, xh, yh; obj_weight = 0.7) rtol = 1e-12
         end
     end
 end

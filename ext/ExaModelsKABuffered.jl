@@ -34,6 +34,12 @@ struct SegProdC{VI,VT}
     b::VI
     c::VT
 end
+struct SegAxpy{VI,VT}
+    dstu::VI
+    ptr::VI
+    a::VI
+    c::VT
+end
 
 _seg_isempty(s) = isempty(s.dstu)
 
@@ -67,6 +73,10 @@ function _seg_prodc(x0, dst::Vector{Int}, a::Vector{Int}, b::Vector{Int}, c::Vec
     p, dstu, ptr = _segment_perm(dst)
     return SegProdC(_dev(x0, dstu), _dev(x0, ptr), _dev(x0, a[p]), _dev(x0, b[p]), _dev(x0, c[p]))
 end
+function _seg_axpy(x0, dst::Vector{Int}, a::Vector{Int}, c::Vector)
+    p, dstu, ptr = _segment_perm(dst)
+    return SegAxpy(_dev(x0, dstu), _dev(x0, ptr), _dev(x0, a[p]), _dev(x0, c[p]))
+end
 
 @kernel function kseg_copy(y, @Const(dstu), @Const(ptr), @Const(src), @Const(S))
     I = @index(Global)
@@ -92,6 +102,14 @@ end
     end
     @inbounds y[dstu[I]] += acc
 end
+@kernel function kseg_axpy(y, @Const(dstu), @Const(ptr), @Const(a), @Const(c), @Const(A))
+    I = @index(Global)
+    acc = zero(eltype(y))
+    @inbounds for j = ptr[I]:(ptr[I+1]-1)
+        acc += c[j] * A[a[j]]
+    end
+    @inbounds y[dstu[I]] += acc
+end
 
 _run!(backend, s::SegCopy, y, S) =
     _seg_isempty(s) || kseg_copy(backend)(y, s.dstu, s.ptr, s.src, S; ndrange = length(s.dstu))
@@ -100,12 +118,27 @@ _run!(backend, s::SegProd, y, A, B) =
 _run!(backend, s::SegProdC, y, A, B) =
     _seg_isempty(s) ||
     kseg_prodc(backend)(y, s.dstu, s.ptr, s.a, s.b, s.c, A, B; ndrange = length(s.dstu))
+_run!(backend, s::SegAxpy, y, A) =
+    _seg_isempty(s) || kseg_axpy(backend)(y, s.dstu, s.ptr, s.a, s.c, A; ndrange = length(s.dstu))
 
 # ── per-element stage kernels ─────────────────────────────────────────────────
 
 @kernel function ksync(θ, @Const(f), @Const(itr), @Const(x), @Const(off))
     I = @index(Global)
     @inbounds θ[off+I] = f(itr[I], x, θ)
+end
+
+# Reduce-stage sync: one workitem per destination slot walks its CSR segment
+# (slots are exclusive per workitem, sources are strictly older θ slots or
+# variables — no atomics needed).
+@kernel function kreduce_sync(θ, @Const(init), @Const(ptr), @Const(src), @Const(w), @Const(x), @Const(off))
+    J = @index(Global)
+    acc = init[J]
+    @inbounds for m = ptr[J]:(ptr[J+1]-1)
+        s = src[m]
+        acc += s > 0 ? w[m] * x[s] : w[m] * θ[-s]
+    end
+    @inbounds θ[off+J] = acc
 end
 
 @kernel function kstagej(y1, @Const(f), @Const(itr), @Const(x), @Const(θ), @Const(o1base))
@@ -229,6 +262,9 @@ struct SubexprKA{T,VT<:AbstractVector{T},VI}
     cmul2::Vector{SegProd{VI}}             # rank-1 phase
     amul::Vector{SegProdC{VI,VT}}
     hmul::Vector{SegProdC{VI,VT}}
+    qc::Vector{SegAxpy{VI,VT}}             # per level: C += coef·abuf2 (reduce μ pairs)
+    qa::Vector{SegAxpy{VI,VT}}             # per level: abuf2 += coef·abuf2
+    qh::SegAxpy{VI,VT}                     # hess += coef·abuf2 (runs after the sweep)
     hess_copy::SegCopy{VI}
 end
 
@@ -249,7 +285,7 @@ function ExaModels.build_subexpr_ka(
 
     slotlvl = zeros(Int, nθ)
     for (i, s) in enumerate(ordered)
-        slotlvl[(s.offset+1):(s.offset+length(s.itr))] .= i
+        slotlvl[(s.offset+1):(s.offset+ExaModels._stage_len(s))] .= i
     end
     lvlof(ξ) = ξ > 0 ? 0 : slotlvl[-ξ]
 
@@ -287,21 +323,7 @@ function ExaModels.build_subexpr_ka(
     ExaModels._con_hess_structure!(T, cons_h, herows, hecols)
     stage_o2_old = reverse(shess.stage_o2)          # oldest-first bases
     for (si, s) in enumerate(ordered)
-        step = s.f.o2step
-        for k in eachindex(s.itr)
-            ExaModels._stage_shessian!(
-                herows,
-                hecols,
-                s.f,
-                s.itr[k],
-                ExaModels.NaNSource{T}(),
-                ExaModels.NaNSource{T}(),
-                s.f.comp2,
-                stage_o2_old[si] + (k - 1) * step,
-                T(NaN),
-                T(NaN),
-            )
-        end
+        ExaModels._stage_hess_structure!(T, herows, hecols, s, stage_o2_old[si])
     end
     mu_cons_dst = Int[]; mu_cons_src = Int[]
     mu_stage_dst = [Int[] for _ in 1:nlv]           # by SOURCE stage level
@@ -367,6 +389,11 @@ function ExaModels.build_subexpr_ka(
         _seg_prodc(x0, shess.hmul_dst[r], shess.hmul_src[r], shess.hmul_a[r], shess.hmul_c[r])
         for r in shess.lvl_hmul
     ]
+    seg_qc = [_seg_axpy(x0, shess.qc_dst[r], shess.qc_j[r], shess.qc_c[r]) for r in shess.lvl_qc]
+    seg_qa = [_seg_axpy(x0, shess.qa_dst[r], shess.qa_j[r], shess.qa_c[r]) for r in shess.lvl_qa]
+    # qh reads only this-level μ seeds, which never change after their level is
+    # reached, so all levels' programs can run together after the sweep.
+    seg_qh = _seg_axpy(x0, shess.qh_dst, shess.qh_j, shess.qh_c)
 
     VI = typeof(similar(x0, Int, 0))
     return SubexprKA(
@@ -399,6 +426,9 @@ function ExaModels.build_subexpr_ka(
         SegProd{VI}[seg_cmul2...],
         SegProdC{VI,typeof(similar(x0, 0))}[seg_amul...],
         SegProdC{VI,typeof(similar(x0, 0))}[seg_hmul...],
+        SegAxpy{VI,typeof(similar(x0, 0))}[seg_qc...],
+        SegAxpy{VI,typeof(similar(x0, 0))}[seg_qa...],
+        seg_qh,
         _seg_copy(x0, shess.hess_copy_dst, shess.hess_copy_src),
     )
 end
@@ -408,20 +438,39 @@ end
 _sync_ka!(backend, ::Tuple{}, θoff, i, x, θ) = nothing
 function _sync_ka!(backend, stages::Tuple, θoff, i, x, θ)
     _sync_ka!(backend, Base.tail(stages), θoff, i + 1, x, θ)
-    s = first(stages)
+    _sync_ka_stage!(backend, first(stages), θoff[i], x, θ)
+    return nothing
+end
+function _sync_ka_stage!(backend, s::ExaModels.SubexprStage, off, x, θ)
     if !isempty(s.itr)
-        ksync(backend)(θ, s.f, s.itr, x, θoff[i]; ndrange = length(s.itr))
+        ksync(backend)(θ, s.f, s.itr, x, off; ndrange = length(s.itr))
+    end
+    return nothing
+end
+function _sync_ka_stage!(backend, s::ExaModels.SubexprReduceStage, off, x, θ)
+    if s.n > 0
+        kreduce_sync(backend)(θ, s.init, s.ptr, s.src, s.w, x, s.offset; ndrange = s.n)
     end
     return nothing
 end
 
 _stagej_ka!(backend, ::Tuple{}, ska, i, x, θ) = nothing
 function _stagej_ka!(backend, stages::Tuple, ska, i, x, θ)
-    s = first(stages)
-    if !isempty(s.itr)
-        kstagej(backend)(ska.stage_ext, s.f, s.itr, x, θ, ska.o1base[i]; ndrange = length(s.itr))
-    end
+    _stagej_ka_stage!(backend, first(stages), ska, ska.o1base[i], x, θ)
     _stagej_ka!(backend, Base.tail(stages), ska, i + 1, x, θ)
+    return nothing
+end
+function _stagej_ka_stage!(backend, s::ExaModels.SubexprStage, ska, o1base, x, θ)
+    if !isempty(s.itr)
+        kstagej(backend)(ska.stage_ext, s.f, s.itr, x, θ, o1base; ndrange = length(s.itr))
+    end
+    return nothing
+end
+# A reduce stage's one-level Jacobian values are its constant weights.
+function _stagej_ka_stage!(backend, s::ExaModels.SubexprReduceStage, ska, o1base, x, θ)
+    if !isempty(s.w)
+        copyto!(view(ska.stage_ext, (o1base+1):(o1base+length(s.w))), s.w)
+    end
     return nothing
 end
 
@@ -498,7 +547,21 @@ end
 
 _stageh_ka!(backend, ::Tuple{}, ska, i, x, θ) = nothing
 function _stageh_ka!(backend, stages::Tuple, ska, i, x, θ)
-    s = first(stages)
+    _stageh_ka_stage!(backend, first(stages), ska, i, x, θ)
+    _run!(backend, ska.mu_stage[i], ska.abuf2, ska.hess_ext)
+    _run!(backend, ska.lam_chain[i], ska.abuf, ska.abuf, ska.stage_ext)
+    # reduce μ·∇v∇vᵀ pairs: this level's μ seeds are complete here (only
+    # consumers and newer levels write them)
+    _run!(backend, ska.qc[i], ska.C, ska.abuf2)
+    _run!(backend, ska.qa[i], ska.abuf2, ska.abuf2)
+    _run!(backend, ska.ccopy[i], ska.C, ska.hess_ext)
+    _run!(backend, ska.cmul1[i], ska.C, ska.C, ska.stage_ext)
+    _run!(backend, ska.cmul2[i], ska.C, ska.C, ska.stage_ext)
+    _run!(backend, ska.amul[i], ska.abuf2, ska.C, ska.stage_ext)
+    _stageh_ka!(backend, Base.tail(stages), ska, i + 1, x, θ)
+    return nothing
+end
+function _stageh_ka_stage!(backend, s::ExaModels.SubexprStage, ska, i, x, θ)
     if !isempty(s.itr)
         kstageh(backend)(
             ska.hess_ext,
@@ -513,20 +576,19 @@ function _stageh_ka!(backend, stages::Tuple, ska, i, x, θ)
             ndrange = length(s.itr),
         )
     end
-    _run!(backend, ska.mu_stage[i], ska.abuf2, ska.hess_ext)
-    _run!(backend, ska.lam_chain[i], ska.abuf, ska.abuf, ska.stage_ext)
-    _run!(backend, ska.ccopy[i], ska.C, ska.hess_ext)
-    _run!(backend, ska.cmul1[i], ska.C, ska.C, ska.stage_ext)
-    _run!(backend, ska.cmul2[i], ska.C, ska.C, ska.stage_ext)
-    _run!(backend, ska.amul[i], ska.abuf2, ska.C, ska.stage_ext)
-    _stageh_ka!(backend, Base.tail(stages), ska, i + 1, x, θ)
     return nothing
 end
+# A reduce stage replays nothing: its λ chain is the (localrows-driven)
+# lam_chain program of this level, and its μ side is the q programs.
+_stageh_ka_stage!(backend, s::ExaModels.SubexprReduceStage, ska, i, x, θ) = nothing
 
-_stageh_hmul!(backend, ska, hess) =
+function _stageh_hmul!(backend, ska, hess)
     for seg in ska.hmul
         _run!(backend, seg, hess, ska.C, ska.stage_ext)
     end
+    _run!(backend, ska.qh, hess, ska.abuf2)
+    return nothing
+end
 
 function _hess_buffered!(m, x, yv, hess, obj_weight)
     backend = m.ext.backend

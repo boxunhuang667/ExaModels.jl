@@ -216,15 +216,76 @@ struct SubexprStage{F,I}
     offset::Int
 end
 
+"""
+    SubexprReduceStage{VT, VI}
+
+A buffered reduction stage created by [`add_reduce`](@ref): slot `j` holds a
+constant-coefficient linear combination
+
+    θ[offset + j] = init[j] + Σₘ w[m] · source(m)    for m in ptr[j]:ptr[j+1]-1
+
+where `source(m)` is `x[src[m]]` when `src[m] > 0` and `θ[-src[m]]` (an older
+buffered slot) when `src[m] < 0`.  Terms are stored CSR-style by destination
+slot, so evaluation is one loop over data — no expression tree is ever traced
+and the stage is ONE concrete type regardless of the number of terms.  This is
+what makes summing thousands of elements into a slot O(1) in kernel types
+(the flat fan-in and chained-accumulation alternatives both put the term count
+into consumer tree types; see issue #331).
+
+Derivatives need no kernels either: the stage's one-level Jacobian is the
+constant `w`, so the build-time elimination consumes it like any other stage,
+and the μ·∇v∇vᵀ curvature of each slot is expanded at build into index
+programs over pairs of its (constant-weight) sources — see the `q*` program
+families in [`SubexprHess`](@ref).
+
+# Fields
+- `offset::Int`: θ offset; slot `j` lives at `θ[offset + j]`
+- `n::Int`: number of slots
+- `init::VT`: length-`n` constant base values
+- `ptr::VI`: length `n + 1`; slot `j`'s terms are `ptr[j]:ptr[j+1]-1`
+- `src::VI`: signed sources (`> 0` variable index, `< 0` negated θ slot)
+- `w::VT`: constant term weights
+"""
+struct SubexprReduceStage{VT<:AbstractVector,VI<:AbstractVector{Int}}
+    offset::Int
+    n::Int
+    init::VT
+    ptr::VI
+    src::VI
+    w::VT
+end
+
+@inline _stage_len(s::SubexprStage) = length(s.itr)
+@inline _stage_len(s::SubexprReduceStage) = s.n
+# per-element slot counts in the stage_ext / hess_ext program buffers
+@inline _stage_o1len(s::SubexprStage) = length(s.itr) * s.f.o1step
+@inline _stage_o1len(s::SubexprReduceStage) = length(s.w)
+@inline _stage_o2len(s::SubexprStage) = length(s.itr) * s.f.o2step
+@inline _stage_o2len(s::SubexprReduceStage) = 0
+
 # Stage tuples are built newest-first (prepended, like `cons`/`objs`), and a
 # stage can only reference stages added before it.  Forward sync therefore
 # recurses tail-first (oldest first); the reverse pass runs head-first.
 _sync_subexprs!(stages::Tuple{}, x, θ) = nothing
 @inline function _sync_subexprs!(stages::Tuple, x, θ)
     _sync_subexprs!(Base.tail(stages), x, θ)
-    s = first(stages)
+    _sync_stage!(first(stages), x, θ)
+    return nothing
+end
+@inline function _sync_stage!(s::SubexprStage, x, θ)
     @simd for k in eachindex(s.itr)
         @inbounds θ[s.offset+k] = s.f(s.itr[k], x, θ)
+    end
+    return nothing
+end
+@inline function _sync_stage!(s::SubexprReduceStage, x, θ)
+    @inbounds for j = 1:s.n
+        acc = s.init[j]
+        for m = s.ptr[j]:(s.ptr[j+1]-1)
+            sc = s.src[m]
+            acc += sc > 0 ? s.w[m] * x[sc] : s.w[m] * θ[-sc]
+        end
+        θ[s.offset+j] = acc
     end
     return nothing
 end
@@ -556,9 +617,52 @@ end
 _host_array(x::Array) = x
 _host_array(x) = Array(x)
 _host_block(s::SubexprStage) = SubexprStage(s.f, _host_array(s.itr), s.offset)
+_host_block(s::SubexprReduceStage) = SubexprReduceStage(
+    s.offset,
+    s.n,
+    _host_array(s.init),
+    _host_array(s.ptr),
+    _host_array(s.src),
+    _host_array(s.w),
+)
 _host_blocks(t::Tuple) = map(_host_block, t)
 # _host_block methods for Objective/Constraint/ConstraintAugmentation are in
 # nlp.jl (those types are defined after this file is included).
+
+# Extended-space structure of one stage's one-level Jacobian (host blocks):
+# one (row = θ slot, col = signed coordinate) pair per stage_ext program slot.
+function _stage_jac_structure(::Type{T}, s::SubexprStage) where {T}
+    n = length(s.itr)
+    step = s.f.o1step
+    erows = zeros(Int, n * step)
+    ecols = zeros(Int, n * step)
+    for k in eachindex(s.itr)
+        sjacobian!(
+            erows,
+            ecols,
+            s.f,
+            s.itr[k],
+            NaNSource{T}(),
+            NaNSource{T}(),
+            s.f.comp1,
+            s.offset + k,
+            (k - 1) * step,
+            T(NaN),
+        )
+    end
+    return erows, ecols
+end
+# A reduce stage's structure is its term table: slot rows expanded from the CSR
+# pointers, signed sources used as columns directly (same sign convention).
+function _stage_jac_structure(::Type{T}, s::SubexprReduceStage) where {T}
+    erows = zeros(Int, length(s.src))
+    for j = 1:s.n
+        for m = s.ptr[j]:(s.ptr[j+1]-1)
+            erows[m] = s.offset + j
+        end
+    end
+    return erows, copy(s.src)
+end
 
 _build_subexpr_jac(::Type{T}, stages::Tuple{}, cons, nnzj_ext) where {T} =
     (nothing, nothing, nothing)
@@ -583,25 +687,8 @@ function _build_subexpr_jac(::Type{T}, stages::Tuple, cons, nnzj_ext) where {T}
         push!(stage_o1, off)
         rc0 = length(res_copy_dst)
         rp0 = length(res_prod_dst)
-        n = length(s.itr)
-        step = s.f.o1step
-        erows = zeros(Int, n * step)
-        ecols = zeros(Int, n * step)
-        for k in eachindex(s.itr)
-            sjacobian!(
-                erows,
-                ecols,
-                s.f,
-                s.itr[k],
-                NaNSource{T}(),
-                NaNSource{T}(),
-                s.f.comp1,
-                s.offset + k,
-                (k - 1) * step,
-                T(NaN),
-            )
-        end
-        for ind in 1:(n*step)
+        erows, ecols = _stage_jac_structure(T, s)
+        for ind in 1:length(erows)
             row = erows[ind]
             col = ecols[ind]
             col == 0 && continue
@@ -628,7 +715,7 @@ function _build_subexpr_jac(::Type{T}, stages::Tuple, cons, nnzj_ext) where {T}
                 end
             end
         end
-        off += n * step
+        off += length(erows)
         push!(lvl_res_copy, (rc0+1):length(res_copy_dst))
         push!(lvl_res_prod, (rp0+1):length(res_prod_dst))
     end
@@ -691,8 +778,11 @@ end
 
 _stage_jac_fill!(stages::Tuple{}, o1s, i, sj, x, θ) = nothing
 @inline function _stage_jac_fill!(stages::Tuple, o1s, i, sj, x, θ)
-    s = first(stages)
-    off = o1s[i]
+    _stage_jac_fill1!(first(stages), o1s[i], sj, x, θ)
+    _stage_jac_fill!(Base.tail(stages), o1s, i + 1, sj, x, θ)
+    return nothing
+end
+@inline function _stage_jac_fill1!(s::SubexprStage, off, sj, x, θ)
     step = s.f.o1step
     for k in eachindex(s.itr)
         sjacobian!(
@@ -708,7 +798,13 @@ _stage_jac_fill!(stages::Tuple{}, o1s, i, sj, x, θ) = nothing
             one(eltype(x)),
         )
     end
-    _stage_jac_fill!(Base.tail(stages), o1s, i + 1, sj, x, θ)
+    return nothing
+end
+# A reduce stage's one-level Jacobian values are its constant weights.
+@inline function _stage_jac_fill1!(s::SubexprReduceStage, off, sj, x, θ)
+    @inbounds for m in eachindex(s.w)
+        sj.stage_ext[off+m] = s.w[m]
+    end
     return nothing
 end
 
@@ -793,6 +889,20 @@ struct SubexprHess{T}
     hmul_src::Vector{Int}
     hmul_a::Vector{Int}
     hmul_c::Vector{T}
+    # q programs (reduce stages): μ·∇v∇vᵀ with constant ∇v, expanded at build
+    # into `target += coef * abuf2[j]` over source-coordinate pairs.
+    lvl_qh::Vector{UnitRange{Int}}
+    qh_dst::Vector{Int}        # hess[dst] += coef * abuf2[j]   (x, x pairs)
+    qh_j::Vector{Int}
+    qh_c::Vector{T}
+    lvl_qc::Vector{UnitRange{Int}}
+    qc_dst::Vector{Int}        # C[dst] += coef * abuf2[j]      (mixed / distinct-slot pairs)
+    qc_j::Vector{Int}
+    qc_c::Vector{T}
+    lvl_qa::Vector{UnitRange{Int}}
+    qa_dst::Vector{Int}        # abuf2[dst] += coef * abuf2[j]  (same-slot pairs)
+    qa_j::Vector{Int}
+    qa_c::Vector{T}
     hess_copy_dst::Vector{Int} # hess[dst] += hess_ext[src]  (direct xx)
     hess_copy_src::Vector{Int}
     rows::Vector{Int}
@@ -803,6 +913,29 @@ end
 _build_subexpr_hess(::Type{T}, stages::Tuple{}, objs, cons, nnzh_ext, localrows, nθ) where {T} =
     nothing
 
+# Extended-space structure of one stage's replay Hessian (host blocks), written
+# into the stage's hess_ext segment starting at `base`.  A reduce stage has no
+# replay (its ∇² is zero in the extended coordinates) and contributes nothing.
+function _stage_hess_structure!(::Type{T}, erows, ecols, s::SubexprStage, base) where {T}
+    step = s.f.o2step
+    for k in eachindex(s.itr)
+        _stage_shessian!(
+            erows,
+            ecols,
+            s.f,
+            s.itr[k],
+            NaNSource{T}(),
+            NaNSource{T}(),
+            s.f.comp2,
+            base + (k - 1) * step,
+            T(NaN),
+            T(NaN),
+        )
+    end
+    return nothing
+end
+_stage_hess_structure!(::Type{T}, erows, ecols, s::SubexprReduceStage, base) where {T} = nothing
+
 function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, localrows, nθ) where {T}
     objs = _host_blocks(objs)
     cons = _host_blocks(cons)
@@ -812,36 +945,27 @@ function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, loc
     total = nnzh_ext
     for s in ordered
         push!(stage_o2, total)
-        total += length(s.itr) * s.f.o2step
+        total += _stage_o2len(s)
     end
     erows = zeros(Int, total)
     ecols = zeros(Int, total)
     _obj_hess_structure!(T, objs, erows, ecols)
     _con_hess_structure!(T, cons, erows, ecols)
     for (si, s) in enumerate(ordered)
-        step = s.f.o2step
-        for k in eachindex(s.itr)
-            _stage_shessian!(
-                erows,
-                ecols,
-                s.f,
-                s.itr[k],
-                NaNSource{T}(),
-                NaNSource{T}(),
-                s.f.comp2,
-                stage_o2[si] + (k - 1) * step,
-                T(NaN),
-                T(NaN),
-            )
-        end
+        _stage_hess_structure!(T, erows, ecols, s, stage_o2[si])
     end
 
     slotlvl = zeros(Int, nθ)
     for (i, s) in enumerate(ordered)
-        slotlvl[(s.offset+1):(s.offset+length(s.itr))] .= i
+        slotlvl[(s.offset+1):(s.offset+_stage_len(s))] .= i
     end
     lvlof(ξ) = ξ > 0 ? 0 : slotlvl[-ξ]
     normp(a, b) = a >= b ? (a, b) : (b, a)
+    # Slots whose μ seed (abuf2) can be nonzero at runtime: seeded below from the
+    # (-j,-j) diagonal structure entries, and extended during the level sweep by
+    # amul / q-program targets (which always point at strictly older slots, so a
+    # level's set is complete before that level is processed).
+    muactive = falses(nθ)
 
     rows = Int[]; cols = Int[]
     final = Dict{Tuple{Int,Int},Int}()
@@ -859,6 +983,11 @@ function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, loc
     cmulL = [NTuple{3,Int}[] for _ in 1:nlv]
     amulL = [NTuple{3,Int}[] for _ in 1:nlv]
     hmulL = [Tuple{Int,Int,Int,T}[] for _ in 1:nlv]
+    # q programs: μ·∇v∇vᵀ of a reduce slot, expanded at build over unordered
+    # pairs of its weight-folded sources — `target += coef · abuf2[slot]`.
+    qhL = [Tuple{Int,Int,T}[] for _ in 1:nlv]   # target hess
+    qcL = [Tuple{Int,Int,T}[] for _ in 1:nlv]   # target C (strictly older pair)
+    qaL = [Tuple{Int,Int,T}[] for _ in 1:nlv]   # target abuf2 (same older slot)
     hess_copy_dst = Int[]; hess_copy_src = Int[]
 
     # Seed: classify every extended entry.
@@ -871,6 +1000,7 @@ function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, loc
             push!(hess_copy_src, ind)
         elseif r < 0 && r == c
             # slot diagonal: redirected to the μ buffer at runtime; dead slot
+            muactive[-r] = true
             continue
         else
             p = normp(r, c)
@@ -882,10 +1012,50 @@ function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, loc
 
     nores = Tuple{Int,Int}[]
     cmul_phL = Int[]
+    # μ·∇v∇vᵀ expansion for one reduce slot family.  ∇v is constant (the
+    # weight-folded source coefficients), so each unordered coordinate pair
+    # becomes one `target += (wₐ·w_b) · abuf2[slot]` program; the pair value is
+    # the MATRIX entry counted once, matching the C/amul conventions (a
+    # same-coordinate pair is the plain diagonal wₐ², no doubling).
+    _emit_reduce_q!(::Type{T}, s::SubexprStage, l, muactive, localrows, qh, qc, qa, emit, getC!, lvlof, normp) where {T} = nothing
+    function _emit_reduce_q!(::Type{T}, s::SubexprReduceStage, l, muactive, localrows, qh, qc, qa, emit, getC!, lvlof, normp) where {T}
+        wmap = Dict{Int,T}()
+        for j = 1:s.n
+            slot = s.offset + j
+            muactive[slot] || continue
+            empty!(wmap)
+            for m = s.ptr[j]:(s.ptr[j+1]-1)
+                wmap[s.src[m]] = get(wmap, s.src[m], zero(T)) + T(s.w[m])
+            end
+            ks = collect(keys(wmap))
+            for a = 1:length(ks), b = a:length(ks)
+                ξa, ξb = ks[a], ks[b]
+                cf = wmap[ξa] * wmap[ξb]
+                if ξa > 0 && ξb > 0
+                    push!(qh, (emit(ξa, ξb), slot, cf))
+                elseif ξa < 0 && ξa == ξb
+                    push!(qa, (-ξa, slot, cf))
+                    muactive[-ξa] = true
+                else
+                    np = normp(ξa, ξb)
+                    push!(qc, (getC!(np, max(lvlof(np[1]), lvlof(np[2]))), slot, cf))
+                end
+            end
+        end
+        return nothing
+    end
     # Eliminate levels newest → oldest.  Within a level: rank-2 pairs (both
     # coordinates at this level) first — they produce rank-1 pairs at the same
     # level — then rank-1 pairs, which only produce strictly older pairs.
     for l in nlv:-1:1
+        # μ·∇v∇vᵀ of this level's reduce slots (if any): by the time level l is
+        # reached, every writer of abuf2[slot] for a level-l slot has been
+        # emitted (consumer/stage seeds at classification, amul and q targets
+        # from newer levels), so `muactive` is final for this level's slots.
+        _emit_reduce_q!(
+            T, ordered[l], l, muactive, localrows,
+            qhL[l], qcL[l], qaL[l], emit, getC!, lvlof, normp,
+        )
         d = entries[l]
         expand(p, cp) = begin
             ξexp, oth = lvlof(p[1]) == l ? (p[1], p[2]) : (p[2], p[1])
@@ -894,6 +1064,7 @@ function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, loc
                     push!(hmulL[l], (emit(ccol, oth), cp, aidx, ccol == oth ? T(2) : T(1)))
                 elseif ccol < 0 && ccol == oth
                     push!(amulL[l], (-ccol, cp, aidx))
+                    muactive[-ccol] = true
                 else
                     np = normp(ccol, oth)
                     l2 = max(lvlof(np[1]), lvlof(np[2]))
@@ -917,6 +1088,9 @@ function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, loc
     lvl_cmul = UnitRange{Int}[]; cmul_ph = Int[]; cmul_dst = Int[]; cmul_src = Int[]; cmul_a = Int[]
     lvl_amul = UnitRange{Int}[]; amul_dst = Int[]; amul_src = Int[]; amul_a = Int[]
     lvl_hmul = UnitRange{Int}[]; hmul_dst = Int[]; hmul_src = Int[]; hmul_a = Int[]; hmul_c = T[]
+    lvl_qh = UnitRange{Int}[]; qh_dst = Int[]; qh_j = Int[]; qh_c = T[]
+    lvl_qc = UnitRange{Int}[]; qc_dst = Int[]; qc_j = Int[]; qc_c = T[]
+    lvl_qa = UnitRange{Int}[]; qa_dst = Int[]; qa_j = Int[]; qa_c = T[]
     for l in nlv:-1:1
         n0 = length(ccopy_dst)
         for (dst, s) in ccopyL[l]
@@ -939,6 +1113,21 @@ function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, loc
             push!(hmul_dst, dst); push!(hmul_src, s); push!(hmul_a, a); push!(hmul_c, cf)
         end
         push!(lvl_hmul, (n0+1):length(hmul_dst))
+        n0 = length(qh_dst)
+        for (dst, j, cf) in qhL[l]
+            push!(qh_dst, dst); push!(qh_j, j); push!(qh_c, cf)
+        end
+        push!(lvl_qh, (n0+1):length(qh_dst))
+        n0 = length(qc_dst)
+        for (dst, j, cf) in qcL[l]
+            push!(qc_dst, dst); push!(qc_j, j); push!(qc_c, cf)
+        end
+        push!(lvl_qc, (n0+1):length(qc_dst))
+        n0 = length(qa_dst)
+        for (dst, j, cf) in qaL[l]
+            push!(qa_dst, dst); push!(qa_j, j); push!(qa_c, cf)
+        end
+        push!(lvl_qa, (n0+1):length(qa_dst))
     end
     reverse!(stage_o2)   # match the newest-first stage tuple order
 
@@ -964,6 +1153,18 @@ function _build_subexpr_hess(::Type{T}, stages::Tuple, objs, cons, nnzh_ext, loc
         hmul_src,
         hmul_a,
         hmul_c,
+        lvl_qh,
+        qh_dst,
+        qh_j,
+        qh_c,
+        lvl_qc,
+        qc_dst,
+        qc_j,
+        qc_c,
+        lvl_qa,
+        qa_dst,
+        qa_j,
+        qa_c,
         hess_copy_dst,
         hess_copy_src,
         rows,
@@ -979,7 +1180,41 @@ end
 _hess_seq!(stages::Tuple{}, i, sh, sj, t::HessTarget, hess, x, θ) = nothing
 @inline function _hess_seq!(stages::Tuple, i, sh, sj, t::HessTarget, hess, x, θ)
     s = first(stages)
-    off = sh.stage_o2[i]
+    _stage_replay!(s, sh.stage_o2[i], t, x, θ)
+    C = sh.C
+    ext = sh.hess_ext
+    sx = sj.stage_ext
+    # q programs: this level's μ seeds are complete (only consumers, newer
+    # replays, and newer levels' amul/qa programs write them — all done).
+    @inbounds for m in sh.lvl_qh[i]
+        hess[sh.qh_dst[m]] += sh.qh_c[m] * t.abuf2[sh.qh_j[m]]
+    end
+    @inbounds for m in sh.lvl_qc[i]
+        C[sh.qc_dst[m]] += sh.qc_c[m] * t.abuf2[sh.qc_j[m]]
+    end
+    @inbounds for m in sh.lvl_qa[i]
+        t.abuf2[sh.qa_dst[m]] += sh.qa_c[m] * t.abuf2[sh.qa_j[m]]
+    end
+    @inbounds for m in sh.lvl_ccopy[i]
+        C[sh.ccopy_dst[m]] += ext[sh.ccopy_src[m]]
+    end
+    @inbounds for m in sh.lvl_cmul[i]
+        C[sh.cmul_dst[m]] += C[sh.cmul_src[m]] * sx[sh.cmul_a[m]]
+    end
+    @inbounds for m in sh.lvl_amul[i]
+        t.abuf2[sh.amul_dst[m]] += 2 * C[sh.amul_src[m]] * sx[sh.amul_a[m]]
+    end
+    @inbounds for m in sh.lvl_hmul[i]
+        hess[sh.hmul_dst[m]] += sh.hmul_c[m] * C[sh.hmul_src[m]] * sx[sh.hmul_a[m]]
+    end
+    _hess_seq!(Base.tail(stages), i + 1, sh, sj, t, hess, x, θ)
+    return nothing
+end
+
+# Stage replay with the accumulated (λ, μ) seeds.  A reduce stage replays
+# nothing (zero extended-space curvature); it only chains its λ seeds one level
+# down with its constant weights — the μ side is covered by the q programs.
+@inline function _stage_replay!(s::SubexprStage, off, t::HessTarget, x, θ)
     step = s.f.o2step
     for k in eachindex(s.itr)
         _stage_shessian!(
@@ -995,22 +1230,16 @@ _hess_seq!(stages::Tuple{}, i, sh, sj, t::HessTarget, hess, x, θ) = nothing
             @inbounds(t.abuf2[s.offset+k]),
         )
     end
-    C = sh.C
-    ext = sh.hess_ext
-    sx = sj.stage_ext
-    @inbounds for m in sh.lvl_ccopy[i]
-        C[sh.ccopy_dst[m]] += ext[sh.ccopy_src[m]]
+    return nothing
+end
+@inline function _stage_replay!(s::SubexprReduceStage, off, t::HessTarget, x, θ)
+    @inbounds for j = 1:s.n
+        adj = t.abuf[s.offset+j]
+        for m = s.ptr[j]:(s.ptr[j+1]-1)
+            sc = s.src[m]
+            sc < 0 && (t.abuf[-sc] += s.w[m] * adj)
+        end
     end
-    @inbounds for m in sh.lvl_cmul[i]
-        C[sh.cmul_dst[m]] += C[sh.cmul_src[m]] * sx[sh.cmul_a[m]]
-    end
-    @inbounds for m in sh.lvl_amul[i]
-        t.abuf2[sh.amul_dst[m]] += 2 * C[sh.amul_src[m]] * sx[sh.amul_a[m]]
-    end
-    @inbounds for m in sh.lvl_hmul[i]
-        hess[sh.hmul_dst[m]] += sh.hmul_c[m] * C[sh.hmul_src[m]] * sx[sh.hmul_a[m]]
-    end
-    _hess_seq!(Base.tail(stages), i + 1, sh, sj, t, hess, x, θ)
     return nothing
 end
 
@@ -1046,13 +1275,30 @@ end
 
 _reverse_subexprs!(stages::Tuple{}, x, θ, t::GradTarget) = nothing
 @inline function _reverse_subexprs!(stages::Tuple, x, θ, t::GradTarget)
-    s = first(stages)
+    _reverse_stage!(first(stages), x, θ, t)
+    _reverse_subexprs!(Base.tail(stages), x, θ, t)
+    return nothing
+end
+@inline function _reverse_stage!(s::SubexprStage, x, θ, t::GradTarget)
     for k in eachindex(s.itr)
         adj = @inbounds t.abuf[s.offset+k]
         graph = s.f.f(@inbounds(s.itr[k]), AdjointNodeSource(x), θ)
         drpass(graph, t, adj)
     end
-    _reverse_subexprs!(Base.tail(stages), x, θ, t)
+    return nothing
+end
+@inline function _reverse_stage!(s::SubexprReduceStage, x, θ, t::GradTarget)
+    @inbounds for j = 1:s.n
+        adj = t.abuf[s.offset+j]
+        for m = s.ptr[j]:(s.ptr[j+1]-1)
+            sc = s.src[m]
+            if sc > 0
+                t.y[sc] += s.w[m] * adj
+            else
+                t.abuf[-sc] += s.w[m] * adj
+            end
+        end
+    end
     return nothing
 end
 
