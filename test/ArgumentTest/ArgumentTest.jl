@@ -27,7 +27,7 @@ end
 Base.:(==)(x::_Mutable, y::_Mutable) = x.a == y.a
 
 function runtests()
-    @testset "Argument tests" begin
+    return @testset "Argument tests" begin
 
         @testset "instantiate is the identity without an arg dependency" begin
             v = [1.0, 2.0]
@@ -241,8 +241,10 @@ function runtests()
                 c = ExaModels.ExaCore(concrete = Val(true))
                 ExaModels.@add_var(c, x, src.N; start = 1.0)
                 ExaModels.@add_obj(c, h * (x[i] - 2.0)^2 for i in 1:src.N)
-                ExaModels.@add_con(c, h * x[i] + x[i] for i in 1:src.N;
-                                   lcon = 0.0, ucon = 1.0)
+                ExaModels.@add_con(
+                    c, h * x[i] + x[i] for i in 1:src.N;
+                    lcon = 0.0, ucon = 1.0
+                )
                 return c
             end
 
@@ -269,11 +271,11 @@ function runtests()
             jm_r, jm_c = NLPModels.jac_structure(m)
             jr_r, jr_c = NLPModels.jac_structure(ref)
             @test SparseArrays.sparse(jm_r, jm_c, NLPModels.jac_coord(m, pt), m.meta.ncon, m.meta.nvar) ≈
-                  SparseArrays.sparse(jr_r, jr_c, NLPModels.jac_coord(ref, pt), ref.meta.ncon, ref.meta.nvar)
+                SparseArrays.sparse(jr_r, jr_c, NLPModels.jac_coord(ref, pt), ref.meta.ncon, ref.meta.nvar)
             hm_r, hm_c = NLPModels.hess_structure(m)
             hr_r, hr_c = NLPModels.hess_structure(ref)
             @test SparseArrays.sparse(hm_r, hm_c, NLPModels.hess_coord(m, pt, mult), m.meta.nvar, m.meta.nvar) ≈
-                  SparseArrays.sparse(hr_r, hr_c, NLPModels.hess_coord(ref, pt, mult), ref.meta.nvar, ref.meta.nvar)
+                SparseArrays.sparse(hr_r, hr_c, NLPModels.hess_coord(ref, pt, mult), ref.meta.nvar, ref.meta.nvar)
 
             # The coefficient really is deferred: the same core at another size
             # uses a different h, so a baked-in value would show as a wrong
@@ -297,8 +299,10 @@ function runtests()
                 ExaModels.@add_var(c, x, src.N; start = 1.0)
                 ExaModels.@add_var(c, z, 3; start = 2.0)
                 ExaModels.@add_obj(c, z[j]^2 for j in 1:3)
-                ExaModels.@add_con(c, x[i] + z[1] for i in 1:src.N;
-                                   lcon = 0.0, ucon = Inf)
+                ExaModels.@add_con(
+                    c, x[i] + z[1] for i in 1:src.N;
+                    lcon = 0.0, ucon = Inf
+                )
                 return c
             end
 
@@ -418,7 +422,7 @@ function runtests()
                 c, d = ExaModels.ExaCore(nargs = Val(1))
                 ExaModels.@add_var(c, x, length(d.rows))
                 ExaModels.@add_obj(c, (x[r.i] - r.w)^2 for r in d.rows)
-                rows = [(i = i, w = Float64(i)) for i = 1:5]
+                rows = [(i = i, w = Float64(i)) for i in 1:5]
                 dev = ExaModels.convert_array(rows, backend)
                 m = ExaModels.ExaModel(c, (; rows = dev); backend = backend)
                 @testset "$backend" begin

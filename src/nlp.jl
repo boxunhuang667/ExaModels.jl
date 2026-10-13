@@ -22,7 +22,7 @@ metadata (e.g. scenario identifiers for two-stage models).
 # concrete offset (or vice versa), so they need separate parameters.  `L` is
 # appended rather than inserted, keeping `Variable{S,O,<:SomeTag}` aliases
 # (two_stage.jl) matching as before.
-struct Variable{S,O,T,L} <: AbstractVariable
+struct Variable{S, O, T, L} <: AbstractVariable
     size::S
     length::L
     offset::O
@@ -32,10 +32,10 @@ end
 Base.show(io::IO, v::AbstractVariable) = print(
     io,
     """
-Variable
+    Variable
 
-  $(v.name) ∈ R^{$(join(size(v.size)," × "))}
-""",
+      $(v.name) ∈ R^{$(join(size(v.size), " × "))}
+    """,
 )
 
 """
@@ -62,14 +62,14 @@ function _show_expression(io::IO, s::Expression)
     catch
         "(?)"
     end
-    print(
+    return print(
         io,
         """
-Subexpression (reduced)
+        Subexpression (reduced)
 
-  s ∈ R^{$(join(size(s.size), " × "))}
-  s(x,i) = $expr
-""",
+          s ∈ R^{$(join(size(s.size), " × "))}
+          s(x,i) = $expr
+        """,
     )
 end
 
@@ -87,7 +87,7 @@ Supports the full NLPModels evaluation API through second order, on the host
 and on KernelAbstractions backends.  Not compatible with oracles or
 `ExaModel(c; prod = true)`.
 """
-struct BufferedExpression{S,F,T}
+struct BufferedExpression{S, F, T}
     size::S
     length::Int
     offset::Int    # θ offset: element k's value lives at θ[offset + k]
@@ -100,14 +100,14 @@ function Base.show(io::IO, s::BufferedExpression)
     catch
         "(?)"
     end
-    print(
+    return print(
         io,
         """
-Subexpression (buffered)
+        Subexpression (buffered)
 
-  s ∈ R^{$(join(size(s.size), " × "))}
-  s(x,i) = $expr
-""",
+          s ∈ R^{$(join(size(s.size), " × "))}
+          s(x,i) = $expr
+        """,
     )
 end
 
@@ -120,7 +120,7 @@ time with [`set_value!`](@ref) without rebuilding the model. Use indexing
 (e.g. `θ[i]`) to embed parameter values in expressions. An optional `tag` field
 carries user-defined metadata.
 """
-struct Parameter{S,O,T,L} <: AbstractParameter
+struct Parameter{S, O, T, L} <: AbstractParameter
     size::S
     length::L
     offset::O
@@ -129,10 +129,10 @@ end
 Base.show(io::IO, v::Parameter) = print(
     io,
     """
-Parameter
+    Parameter
 
-  θ ∈ R^{$(join(size(v.size)," × "))}
-""",
+      θ ∈ R^{$(join(size(v.size), " × "))}
+    """,
 )
 
 """
@@ -142,23 +142,27 @@ An objective term group added to an [`ExaCore`](@ref) via [`add_obj`](@ref) /
 [`@add_obj`](@ref). All `Objective` objects in a core are summed at evaluation time
 to form the total objective value.
 """
-struct Objective{F,I} <: AbstractObjective
+struct Objective{F, I} <: AbstractObjective
     f::F
     itr::I
 end
 function Base.show(io::IO, v::Objective)
-    expr = try _expr_string(v.f.f) catch; "(?)" end
-    print(
+    expr = try
+        _expr_string(v.f.f)
+    catch
+        "(?)"
+    end
+    return print(
         io,
         """
-Objective
+        Objective
 
-  ∑_{i ∈ I} f(x,i)
+          ∑_{i ∈ I} f(x,i)
 
-  f(x,i) = $expr
+          f(x,i) = $expr
 
-  where |I| = $(length(v.itr))
-""",
+          where |I| = $(length(v.itr))
+        """,
     )
 end
 
@@ -172,7 +176,7 @@ Row `k` of this block maps to global constraint index `offset + k`. Dual
 solution values can be retrieved with [`multipliers`](@ref). An optional `tag`
 field carries user-defined metadata.
 """
-struct Constraint{F,I,O,S,T} <: AbstractConstraint
+struct Constraint{F, I, O, S, T} <: AbstractConstraint
     f::F
     itr::I
     offset::O
@@ -180,18 +184,22 @@ struct Constraint{F,I,O,S,T} <: AbstractConstraint
     tag::T
 end
 function Base.show(io::IO, v::Constraint)
-    expr = try _expr_string(v.f.f) catch; "(?)" end
-    print(
+    expr = try
+        _expr_string(v.f.f)
+    catch
+        "(?)"
+    end
+    return print(
         io,
         """
-Constraint
+        Constraint
 
-  g♭ ≤ [g(x,i)]_{i ∈ I} ≤ g♯
+          g♭ ≤ [g(x,i)]_{i ∈ I} ≤ g♯
 
-  g(x,i) = $expr
+          g(x,i) = $expr
 
-  where |I| = $(length(v.itr))
-""",
+          where |I| = $(length(v.itr))
+        """,
     )
 end
 
@@ -206,7 +214,7 @@ the same base constraint to aggregate contributions from several data sources
 (e.g. summing arc flows into nodal balance constraints). An optional `tag` field
 carries user-defined metadata.
 """
-struct ConstraintAugmentation{F,I,D,T,OA} <: AbstractConstraint
+struct ConstraintAugmentation{F, I, D, T, OA} <: AbstractConstraint
     f::F
     itr::I
     oa::OA
@@ -215,18 +223,22 @@ struct ConstraintAugmentation{F,I,D,T,OA} <: AbstractConstraint
 end
 
 function Base.show(io::IO, v::ConstraintAugmentation)
-    expr = try _expr_string(v.f.f) catch; "(?)" end
-    print(
+    expr = try
+        _expr_string(v.f.f)
+    catch
+        "(?)"
+    end
+    return print(
         io,
         """
-Constraint Augmentation
+        Constraint Augmentation
 
-  g♭ ≤ (...) + ∑_{i ∈ I} h(x,i) ≤ g♯
+          g♭ ≤ (...) + ∑_{i ∈ I} h(x,i) ≤ g♯
 
-  h(x,i) = $expr
+          h(x,i) = $expr
 
-  where |I| = $(length(v.itr))
-""",
+          where |I| = $(length(v.itr))
+        """,
     )
 end
 
@@ -278,7 +290,7 @@ Base.getindex(c::Constraint, i) = begin
 end
 # For multi-dim constraints: tuple indices, adjust each for its range start.
 # Uses recursive tuple construction (not ntuple) for GPU compatibility.
-Base.getindex(c::Constraint, idx::Vararg{Any,N}) where {N} =
+Base.getindex(c::Constraint, idx::Vararg{Any, N}) where {N} =
     ConstraintSlot(c, _adjust_tuple(idx, c.size))
 Base.getindex(c::ConstraintAugmentation, idx...) =
     ConstraintSlot(c, idx)
@@ -306,7 +318,7 @@ end
 @inline _con_adjust(idx, start) = idx - (start - 1)
 @inline _con_adjust(idx::Integer, start) = Constant(idx - start + 1)
 
-abstract type AbstractExaCore{T,VT,B,S} end
+abstract type AbstractExaCore{T, VT, B, S} end
 
 """
     ExaCore([array_eltype::Type; backend = nothing, concrete = Val(false), minimize = true, name = :Generic])
@@ -368,9 +380,11 @@ An ExaCore
 # (`ExaCore{T}`, `ExaCore{T,VT,B}`, the no-oracle signature below) still match.
 # `T` is now passed explicitly at construction: it used to be recovered from the
 # `VT <: AbstractVector{T}` bound, and no field carries it on its own.
-struct ExaCore{T, VT, B, S, V, P, O, C, R, OR, SOR, EV, SE,
-               NV, NP, NC, NCA, NO, NZC, NZG, NZJ, NZH,
-               TH, LV, UV, Y0, LC, UC, NARGS} <: AbstractExaCore{T, VT, B, S}
+struct ExaCore{
+        T, VT, B, S, V, P, O, C, R, OR, SOR, EV, SE,
+        NV, NP, NC, NCA, NO, NZC, NZG, NZJ, NZH,
+        TH, LV, UV, Y0, LC, UC, NARGS,
+    } <: AbstractExaCore{T, VT, B, S}
     name::Symbol
     backend::B
     var::V
@@ -443,44 +457,48 @@ end
     scalar_oracles::SOR,
     evals::EV,
     nargs::NARGS,
-) where {T, VT, B, S, V, P, O, C, R, OR, SOR, EV, SE,
-         NV, NP, NC, NCA, NO, NZC, NZG, NZJ, NZH, TH, LV, UV, Y0, LC, UC, NARGS} =
-    ExaCore{T, VT, B, S, V, P, O, C, R, OR, SOR, EV, SE,
-            NV, NP, NC, NCA, NO, NZC, NZG, NZJ, NZH, TH, LV, UV, Y0, LC, UC, NARGS}(
-        name, backend, var, par, obj, cons, subexprs,
-        nvar, npar, ncon, nconaug, nobj, nnzc, nnzg, nnzj, nnzh,
-        x0, θ, lvar, uvar, y0, lcon, ucon,
-        minimize, tag, refs, oracles, scalar_oracles, evals, nargs,
-    )
+) where {
+    T, VT, B, S, V, P, O, C, R, OR, SOR, EV, SE,
+    NV, NP, NC, NCA, NO, NZC, NZG, NZJ, NZH, TH, LV, UV, Y0, LC, UC, NARGS,
+} =
+    ExaCore{
+    T, VT, B, S, V, P, O, C, R, OR, SOR, EV, SE,
+    NV, NP, NC, NCA, NO, NZC, NZG, NZJ, NZH, TH, LV, UV, Y0, LC, UC, NARGS,
+}(
+    name, backend, var, par, obj, cons, subexprs,
+    nvar, npar, ncon, nconaug, nobj, nnzc, nnzg, nnzj, nnzh,
+    x0, θ, lvar, uvar, y0, lcon, ucon,
+    minimize, tag, refs, oracles, scalar_oracles, evals, nargs,
+)
 
 @inline function _exa_core(
-    ::Type{T}
-    ;
-    name = :Generic,
-    backend = nothing,
-    var = (),
-    par = (),
-    obj = (),
-    cons = (),
-    subexprs = (),
-    nvar = 0,
-    npar = 0,
-    ncon = 0,
-    nconaug = 0,
-    nobj = 0,
-    nnzc = 0,
-    nnzg = 0,
-    nnzj = 0,
-    nnzh = 0,
-    x0 = convert_array(zeros(default_T(backend), 0), backend),
-    θ = similar(x0, 0),
-    lvar = similar(x0),
-    uvar = similar(x0),
-    y0 = similar(x0),
-    lcon = similar(x0),
-    ucon = similar(x0),
-    minimize = true,
-    tag = nothing,
+        ::Type{T}
+        ;
+        name = :Generic,
+        backend = nothing,
+        var = (),
+        par = (),
+        obj = (),
+        cons = (),
+        subexprs = (),
+        nvar = 0,
+        npar = 0,
+        ncon = 0,
+        nconaug = 0,
+        nobj = 0,
+        nnzc = 0,
+        nnzg = 0,
+        nnzj = 0,
+        nnzh = 0,
+        x0 = convert_array(zeros(default_T(backend), 0), backend),
+        θ = similar(x0, 0),
+        lvar = similar(x0),
+        uvar = similar(x0),
+        y0 = similar(x0),
+        lcon = similar(x0),
+        ucon = similar(x0),
+        minimize = true,
+        tag = nothing,
         refs = (;),
         oracles = (),
         scalar_oracles = (),
@@ -531,8 +549,8 @@ end
 # so both modes produce the same `ExaModel` and the same AD kernels.
 
 @inline function ExaCore(
-    ::Type{T}; backend = nothing, concrete = nothing, nargs = Val(0), kwargs...,
-) where {T<:AbstractFloat}
+        ::Type{T}; backend = nothing, concrete = nothing, nargs = Val(0), kwargs...,
+    ) where {T <: AbstractFloat}
     return _with_args(
         _exa_core_from_x0(
             convert_array(zeros(T, 0), backend), backend;
@@ -645,7 +663,7 @@ is known statically and destructuring stays inferable.
 
 # `Vararg{Any,N}`: see the note on the `Tuple` method in argument.jl — forces
 # specialization so the field-by-field mapping stays static under `--trim`.
-function instantiate(c::ExaCore{T}, a::Vararg{Any,N}) where {T, N}
+function instantiate(c::ExaCore{T}, a::Vararg{Any, N}) where {T, N}
     return ExaCore{T}(
         c.name,
         c.backend,
@@ -680,27 +698,39 @@ function instantiate(c::ExaCore{T}, a::Vararg{Any,N}) where {T, N}
     )
 end
 
-instantiate(v::Variable, a::Vararg{Any,N}) where {N} =
-    Variable(instantiate(v.size, a...), instantiate(v.length, a...), instantiate(v.offset, a...),
-             v.name, instantiate(v.tag, a...))
-instantiate(p::Parameter, a::Vararg{Any,N}) where {N} =
-    Parameter(instantiate(p.size, a...), instantiate(p.length, a...), instantiate(p.offset, a...),
-              instantiate(p.tag, a...))
-instantiate(e::Expression, a::Vararg{Any,N}) where {N} =
-    Expression(instantiate(e.size, a...), instantiate(e.length, a...), instantiate(e.f, a...),
-               instantiate(e.iter, a...), instantiate(e.tag, a...))
-instantiate(o::Objective, a::Vararg{Any,N}) where {N} = Objective(instantiate(o.f, a...), instantiate(o.itr, a...))
-instantiate(c::Constraint, a::Vararg{Any,N}) where {N} =
-    Constraint(instantiate(c.f, a...), instantiate(c.itr, a...), instantiate(c.offset, a...),
-               instantiate(c.size, a...), instantiate(c.tag, a...))
-instantiate(c::ConstraintAugmentation, a::Vararg{Any,N}) where {N} =
-    ConstraintAugmentation(instantiate(c.f, a...), instantiate(c.itr, a...),
-                           instantiate(c.oa, a...), instantiate(c.dims, a...),
-                           instantiate(c.tag, a...))
-instantiate(f::SIMDFunction, a::Vararg{Any,N}) where {N} =
-    SIMDFunction(instantiate(f.f, a...), f.comp1, f.comp2,
-                 instantiate(f.o0, a...), instantiate(f.o1, a...), instantiate(f.o2, a...),
-                 f.o1step, f.o2step)
+instantiate(v::Variable, a::Vararg{Any, N}) where {N} =
+    Variable(
+    instantiate(v.size, a...), instantiate(v.length, a...), instantiate(v.offset, a...),
+    v.name, instantiate(v.tag, a...)
+)
+instantiate(p::Parameter, a::Vararg{Any, N}) where {N} =
+    Parameter(
+    instantiate(p.size, a...), instantiate(p.length, a...), instantiate(p.offset, a...),
+    instantiate(p.tag, a...)
+)
+instantiate(e::Expression, a::Vararg{Any, N}) where {N} =
+    Expression(
+    instantiate(e.size, a...), instantiate(e.length, a...), instantiate(e.f, a...),
+    instantiate(e.iter, a...), instantiate(e.tag, a...)
+)
+instantiate(o::Objective, a::Vararg{Any, N}) where {N} = Objective(instantiate(o.f, a...), instantiate(o.itr, a...))
+instantiate(c::Constraint, a::Vararg{Any, N}) where {N} =
+    Constraint(
+    instantiate(c.f, a...), instantiate(c.itr, a...), instantiate(c.offset, a...),
+    instantiate(c.size, a...), instantiate(c.tag, a...)
+)
+instantiate(c::ConstraintAugmentation, a::Vararg{Any, N}) where {N} =
+    ConstraintAugmentation(
+    instantiate(c.f, a...), instantiate(c.itr, a...),
+    instantiate(c.oa, a...), instantiate(c.dims, a...),
+    instantiate(c.tag, a...)
+)
+instantiate(f::SIMDFunction, a::Vararg{Any, N}) where {N} =
+    SIMDFunction(
+    instantiate(f.f, a...), f.comp1, f.comp2,
+    instantiate(f.o0, a...), instantiate(f.o1, a...), instantiate(f.o2, a...),
+    f.o1step, f.o2step
+)
 
 # `instantiate` is the identity on anything it has no method for, which is what
 # makes it safe to apply everywhere — and also means a type it does not know how
@@ -719,8 +749,8 @@ function _assert_instantiated(::Val{true}, c)
         throw(
             ArgumentError(
                 "instantiating this core left argument placeholders in it " *
-                "($(typeof(c))). Some field type has no `instantiate` method — " *
-                "add one rather than relying on the identity fallback.",
+                    "($(typeof(c))). Some field type has no `instantiate` method — " *
+                    "add one rather than relying on the identity fallback.",
             ),
         )
     end
@@ -745,18 +775,18 @@ function _mentions_arg(@nospecialize(T), seen = Base.IdSet{Any}())
 end
 
 
-Base.show(io::IO, c::ExaCore{T,VT,B}) where {T,VT,B} = print(
+Base.show(io::IO, c::ExaCore{T, VT, B}) where {T, VT, B} = print(
     io,
     """
-An ExaCore
+    An ExaCore
 
-  Float type: ...................... $T
-  Array type: ...................... $VT
-  Backend: ......................... $B
+      Float type: ...................... $T
+      Array type: ...................... $VT
+      Backend: ......................... $B
 
-  number of objective patterns: .... $(length(c.obj))
-  number of constraint patterns: ... $(length(c.cons))
-""",
+      number of objective patterns: .... $(length(c.obj))
+      number of constraint patterns: ... $(length(c.cons))
+    """,
 )
 
 """
@@ -764,9 +794,9 @@ An ExaCore
 
 An abstract type for ExaModel, which is a subtype of `NLPModels.AbstractNLPModel`.
 """
-abstract type AbstractExaModel{T,VT,E} <: NLPModels.AbstractNLPModel{T,VT} end
+abstract type AbstractExaModel{T, VT, E} <: NLPModels.AbstractNLPModel{T, VT} end
 
-struct ExaModel{T,VT,E,V,P,O,C,S,R,SE,SJ,SH,SK} <: AbstractExaModel{T,VT,E}
+struct ExaModel{T, VT, E, V, P, O, C, S, R, SE, SJ, SH, SK} <: AbstractExaModel{T, VT, E}
     name::Symbol
     vars::V
     pars::P
@@ -778,16 +808,16 @@ struct ExaModel{T,VT,E,V,P,O,C,S,R,SE,SJ,SH,SK} <: AbstractExaModel{T,VT,E}
     shess::SH                  # SubexprHess (Hessian elimination maps) or nothing
     ska::SK                    # device (KA) buffered-evaluation artifact or nothing
     θ::VT
-    meta::NLPModels.NLPModelMeta{T,VT}
+    meta::NLPModels.NLPModelMeta{T, VT}
     counters::NLPModels.Counters
     ext::E
     tag::S
     refs::R
 end
 
-function Base.show(io::IO, c::AbstractExaModel{T,VT}) where {T,VT}
+function Base.show(io::IO, c::AbstractExaModel{T, VT}) where {T, VT}
     println(io, "An ExaModel{$T, $VT, ...}\n")
-    Base.show(io, c.meta)
+    return Base.show(io, c.meta)
 end
 
 """
@@ -941,8 +971,8 @@ end
 _arity_check(::Val{N}, ::Val{M}) where {N, M} = throw(
     ArgumentError(
         "this core was built against $N placeholder$(N == 1 ? "" : "s") but " *
-        "$M value$(M == 1 ? " was" : "s were") given. Supply one per " *
-        "placeholder, in the order `ExaCore` returned them.",
+            "$M value$(M == 1 ? " was" : "s were") given. Supply one per " *
+            "placeholder, in the order `ExaCore` returned them.",
     ),
 )
 ExaModel(c::ExaCore, ::Nothing; kwargs...) = ExaModel(c; kwargs...)
@@ -965,35 +995,35 @@ ExaModel(c::ExaCore, ::Nothing; kwargs...) = ExaModel(c; kwargs...)
 _reject_recipe(::Val{N}, c) where {N} = throw(
     ArgumentError(
         "this core was built against $N `ArgSource` placeholder$(N == 1 ? "" : "s"), " *
-        "so it is a recipe rather than a model — supply one value per " *
-        "placeholder, in the order `ExaCore` returned them: `ExaModel(core, 1000)`.",
+            "so it is a recipe rather than a model — supply one value per " *
+            "placeholder, in the order `ExaCore` returned them: `ExaModel(core, 1000)`.",
     ),
 )
 @inline _reject_undeclared(::Val{false}) = nothing
 _reject_undeclared(::Val{true}) = throw(
     ArgumentError(
         "this core was built against `ArgSource` placeholders, so it is a " *
-        "recipe rather than a model — supply one value per placeholder, in " *
-        "the order `ExaCore` returned them: `ExaModel(core, 1000)`.",
+            "recipe rather than a model — supply one value per placeholder, in " *
+            "the order `ExaCore` returned them: `ExaModel(core, 1000)`.",
     ),
 )
 @inline _recipe_check(c) = _reject_recipe(c.nargs, c)
 
 build_extension(c::ExaCore; kwargs...) = nothing
 
-@inline function Base.getindex(v::V, i) where {V<:AbstractVariable}
+@inline function Base.getindex(v::V, i) where {V <: AbstractVariable}
     _bound_check(v.size, i)
-    _indexed_var(i, v.offset - _start(v.size[1]) + 1)
+    return _indexed_var(i, v.offset - _start(v.size[1]) + 1)
 end
 # For symbolic (AbstractNode) indices: use Node2 directly so the offset (runtime Int)
 # is stored as a plain Int64 child — giving concrete type Node2{+, I, Int64}.
 # Going through _add_node_real would wrap the runtime offset in Val(d2::Int64),
 # which is type-unstable and breaks juliac --trim=safe.
-@inline _indexed_var(i::I, o::Int) where {I<:AbstractNode} = Var(Node2(+, i, o))
+@inline _indexed_var(i::I, o::Int) where {I <: AbstractNode} = Var(Node2(+, i, o))
 # A deferred offset enters the graph the same way any argument scalar does, so
 # that a graph carrying one is still evaluable (it answers the sparsity probe)
 # rather than a shape nothing can walk.
-@inline _indexed_var(i::I, o::AbstractArgNode) where {I<:AbstractNode} =
+@inline _indexed_var(i::I, o::AbstractArgNode) where {I <: AbstractNode} =
     Var(Node2(+, i, ArgLeaf(o)))
 
 # A symbolic *index* — `x[n]` with `n = arg.N`, which the boundary cases of the
@@ -1003,10 +1033,10 @@ end
 # `Var` wrapping an arithmetic node that would be re-evaluated per row.
 @inline _indexed_var(i::AbstractArgNode, o) = Var(ArgLeaf(i + o))
 @inline _indexed_var(i, o) = Var(i + o)
-@inline function _getindex(v::V, is, ::Val{false}) where {V<:AbstractVariable}
+@inline function _getindex(v::V, is, ::Val{false}) where {V <: AbstractVariable}
     @assert(length(is) == length(v.size), "Variable index dimension error")
     _bound_check(v.size, is)
-    Var(v.offset + idxx(is .- (_start.(v.size) .- 1), _length.(v.size)))
+    return Var(v.offset + idxx(is .- (_start.(v.size) .- 1), _length.(v.size)))
 end
 
 # Expression indexing - evaluates the expression directly
@@ -1039,10 +1069,10 @@ end
 # buffered value instead of splicing the subexpression tree into the use site.
 # Like Var indexing (see _indexed_var), a symbolic index keeps the runtime
 # offset as a plain Int child of Node2 for type stability under juliac.
-@inline _subexpr_slot(i::I, o::Int) where {I<:AbstractNode} = SubexprNode(Node2(+, i, o))
+@inline _subexpr_slot(i::I, o::Int) where {I <: AbstractNode} = SubexprNode(Node2(+, i, o))
 @inline _subexpr_slot(i, o) = SubexprNode(i + o)
 
-@inline function Base.getindex(s::BufferedExpression, i::I) where {I<:Integer}
+@inline function Base.getindex(s::BufferedExpression, i::I) where {I <: Integer}
     _bound_check(s.size, i)
     return SubexprNode(s.offset + i - _start(s.size[1]) + 1)
 end
@@ -1050,7 +1080,7 @@ end
     # Symbolic index case - slot = offset + (i - start + 1)
     return _subexpr_slot(i, s.offset - _start(s.size[1]) + 1)
 end
-@inline function Base.getindex(s::BufferedExpression, is::Vararg{I,N}) where {I<:Integer,N}
+@inline function Base.getindex(s::BufferedExpression, is::Vararg{I, N}) where {I <: Integer, N}
     @assert(length(is) == length(s.size), "Expression index dimension error")
     _bound_check(s.size, is)
     return SubexprNode(s.offset + idxx(is .- (_start.(s.size) .- 1), _length.(s.size)))
@@ -1060,42 +1090,42 @@ end
     return _subexpr_slot(idxx(is .- (_start.(s.size) .- 1), _length.(s.size)), s.offset)
 end
 
-@inline function Base.getindex(p::P, i) where {P<:Parameter}
+@inline function Base.getindex(p::P, i) where {P <: Parameter}
     _bound_check(p.size, i)
-    ParameterNode(i + (p.offset - _start(p.size[1]) + 1))
+    return ParameterNode(i + (p.offset - _start(p.size[1]) + 1))
 end
-@inline function _getindex(p::P, is, ::Val{false}) where {P<:Parameter}
+@inline function _getindex(p::P, is, ::Val{false}) where {P <: Parameter}
     @assert(length(is) == length(p.size), "Parameter index dimension error")
     _bound_check(p.size, is)
-    ParameterNode(p.offset + idxx(is .- (_start.(p.size) .- 1), _length.(p.size)))
+    return ParameterNode(p.offset + idxx(is .- (_start.(p.size) .- 1), _length.(p.size)))
 end
 
 # `x[:, i]` expands each colon axis to its entries, column-major as in Base.
-const _Indexable = Union{AbstractVariable,Expression,Parameter}
+const _Indexable = Union{AbstractVariable, Expression, Parameter}
 @inline Base.getindex(x::_Indexable, is...) = _getindex(x, is, _hascolon(is))
-@inline Base.getindex(v::V, ::Colon) where {V<:AbstractVariable} = _allentries(v)
+@inline Base.getindex(v::V, ::Colon) where {V <: AbstractVariable} = _allentries(v)
 @inline Base.getindex(s::Expression, ::Colon) = _allentries(s)
-@inline Base.getindex(p::P, ::Colon) where {P<:Parameter} = _allentries(p)
+@inline Base.getindex(p::P, ::Colon) where {P <: Parameter} = _allentries(p)
 @inline _allentries(x) = _getindex(x, map(_ -> :, x.size), Val(true))
 
 @inline _hascolon(::Tuple{}) = Val(false)
-@inline _hascolon(::Tuple{Colon,Vararg{Any}}) = Val(true)
+@inline _hascolon(::Tuple{Colon, Vararg{Any}}) = Val(true)
 @inline _hascolon(is::Tuple) = _hascolon(Base.tail(is))
 
-@inline _axis(n, ::Colon) = _start(n):_start(n)+_length(n)-1
+@inline _axis(n, ::Colon) = _start(n):(_start(n) + _length(n) - 1)
 @inline _axis(n, i) = (i,)
 @inline function _getindex(x, is, ::Val{true})
     @assert(length(is) == length(x.size), "Colon index dimension error")
-    Tuple(x[I...] for I in Iterators.product(map(_axis, x.size, is)...))
+    return Tuple(x[I...] for I in Iterators.product(map(_axis, x.size, is)...))
 end
 
 
-function _bound_check(sizes, i::I) where {I<:Integer}
-    __bound_check(sizes[1], i)
+function _bound_check(sizes, i::I) where {I <: Integer}
+    return __bound_check(sizes[1], i)
 end
-function _bound_check(sizes, is::NTuple{N,I}) where {I<:Integer,N}
+function _bound_check(sizes, is::NTuple{N, I}) where {I <: Integer, N}
     __bound_check(sizes[1], is[1])
-    _bound_check(sizes[2:end], is[2:end])
+    return _bound_check(sizes[2:end], is[2:end])
 end
 _bound_check(sizes, is) = nothing
 _bound_check(sizes, is::Tuple{}) = nothing
@@ -1115,11 +1145,11 @@ end
 function _bound_check(sizes, i::AbstractArgNode)
     return nothing
 end
-function __bound_check(a::I, b::I) where {I<:Integer}
-    @assert(1 <= b <= a, "Variable index bound error")
+function __bound_check(a::I, b::I) where {I <: Integer}
+    return @assert(1 <= b <= a, "Variable index bound error")
 end
-function __bound_check(a::UnitRange{Int}, b::I) where {I<:Integer}
-    @assert(b in a, "Variable index bound error")
+function __bound_check(a::UnitRange{Int}, b::I) where {I <: Integer}
+    return @assert(b in a, "Variable index bound error")
 end
 
 
@@ -1128,7 +1158,7 @@ function append!(backend, a, b::Base.Generator, lb)
         b = _adapt_gen(b)
         la = length(a)
         resize!(a, la + lb)
-        map!(b.f, view(a, (la+1):(la+lb)), convert_array(b.iter, backend))
+        map!(b.f, view(a, (la + 1):(la + lb)), convert_array(b.iter, backend))
     end
     return a
 end
@@ -1137,7 +1167,7 @@ function append!(backend, a, b::Base.Generator{UnitRange{I}}, lb) where {I}
     if lb != 0
         la = length(a)
         resize!(a, la + lb)
-        map!(b.f, view(a, (la+1):(la+lb)), b.iter)
+        map!(b.f, view(a, (la + 1):(la + lb)), b.iter)
     end
     return a
 end
@@ -1146,7 +1176,7 @@ function append!(backend, a, b::AbstractArray, lb)
     if lb != 0
         la = length(a)
         resize!(a, la + lb)
-        map!(identity, view(a, (la+1):(la+lb)), convert_array(b, backend))
+        map!(identity, view(a, (la + 1):(la + lb)), convert_array(b, backend))
     end
     return a
 end
@@ -1155,7 +1185,7 @@ function append!(backend, a, b::Number, lb)
     if lb != 0
         la = length(a)
         resize!(a, la + lb)
-        fill!(view(a, (la+1):(la+lb)), eltype(a)(b))
+        fill!(view(a, (la + 1):(la + lb)), eltype(a)(b))
     end
     return a
 end
@@ -1190,11 +1220,11 @@ end
 
 # `start = (f(i) for i in 1:arg.N)` — the body is untouched (it runs per element
 # once the iterator is concrete); only what it iterates is deferred.
-@inline instantiate(g::Base.Generator, a::Vararg{Any,N}) where {N} = Base.Generator(g.f, instantiate(g.iter, a...))
+@inline instantiate(g::Base.Generator, a::Vararg{Any, N}) where {N} = Base.Generator(g.f, instantiate(g.iter, a...))
 
 # A product iterator is arg-dependent when any of the ranges it crosses is.
 @inline _anyarg(p::Base.Iterators.ProductIterator, xs...) = _anyarg(p.iterators..., xs...)
-@inline instantiate(p::Base.Iterators.ProductIterator, a::Vararg{Any,N}) where {N} =
+@inline instantiate(p::Base.Iterators.ProductIterator, a::Vararg{Any, N}) where {N} =
     Base.Iterators.product(instantiate(p.iterators, a...)...)
 
 # `append!` mutates its accumulator and returns it.  That is exactly right while
@@ -1242,14 +1272,14 @@ Variable
 ```
 """
 @inline function add_var(
-    c::C,
-    ns...;
-    tag = nothing,
-    name = nothing,
-    start = zero(T),
-    lvar = T(-Inf),
-    uvar = T(Inf),
-) where {T,C<:ExaCore{T}}
+        c::C,
+        ns...;
+        tag = nothing,
+        name = nothing,
+        start = zero(T),
+        lvar = T(-Inf),
+        uvar = T(Inf),
+    ) where {T, C <: ExaCore{T}}
     return _add_var(c, tag, name, start, lvar, uvar, ns...)
 end
 
@@ -1264,7 +1294,7 @@ end
 
     v = Variable(ns, len, o, _val_name(name), tag)
 
-    (ExaCore(c; var = _prep(c.var, v), nvar=nvar, x0=x0, lvar=lvar, uvar=uvar, refs = add_refs(c.refs, name, v)), v)
+    return (ExaCore(c; var = _prep(c.var, v), nvar = nvar, x0 = x0, lvar = lvar, uvar = uvar, refs = add_refs(c.refs, name, v)), v)
 end
 
 @inline _val_name(::Val{N}) where {N} = N
@@ -1314,16 +1344,16 @@ Parameter
   θ ∈ R^{10}
 ```
 """
-@inline function add_par(c::C, value::AbstractArray; tag = nothing, name = nothing) where {T,C<:ExaCore{T}}
-    _add_par(c, tag, name, value, Base.size(value)...)
+@inline function add_par(c::C, value::AbstractArray; tag = nothing, name = nothing) where {T, C <: ExaCore{T}}
+    return _add_par(c, tag, name, value, Base.size(value)...)
 end
 
-@inline function add_par(c::C, n::AbstractRange; tag = nothing, name = nothing, value = zero(T)) where {T,C<:ExaCore{T}}
-    _add_par(c, tag, name, value, n)
+@inline function add_par(c::C, n::AbstractRange; tag = nothing, name = nothing, value = zero(T)) where {T, C <: ExaCore{T}}
+    return _add_par(c, tag, name, value, n)
 end
 
-@inline function add_par(c::C, ns...; tag = nothing, name = nothing, value = zero(T)) where {T,C<:ExaCore{T}}
-    _add_par(c, tag, name, value, ns...)
+@inline function add_par(c::C, ns...; tag = nothing, name = nothing, value = zero(T)) where {T, C <: ExaCore{T}}
+    return _add_par(c, tag, name, value, ns...)
 end
 
 @inline function _add_par(c, tag, name, start, ns...)
@@ -1332,7 +1362,7 @@ end
     npar = c.npar + len
     θ = _append_slot(c.backend, c.θ, start, len)
     p = Parameter(ns, len, o, tag)
-    (ExaCore(c; par = _prep(c.par, p), θ=θ, npar=npar, refs = add_refs(c.refs, name, p)), p)
+    return (ExaCore(c; par = _prep(c.par, p), θ = θ, npar = npar, refs = add_refs(c.refs, name, p)), p)
 end
 
 """
@@ -1408,7 +1438,7 @@ For second-stage parameters in a two-stage model, use
 `get_value(model, param, scen)` to extract a single scenario's slice.
 """
 function get_value(model::ExaModel, param::Parameter)
-    return view(model.θ, param.offset+1 : param.offset+param.length)
+    return view(model.θ, (param.offset + 1):(param.offset + param.length))
 end
 
 """
@@ -1418,16 +1448,18 @@ Update all values for `param` in `model.θ` to `values`.
 """
 function set_value!(model::ExaModel, param::Parameter, values)
     if length(values) != param.length
-        throw(DimensionMismatch(
-            "expected $(param.length) elements, got $(length(values))"
-        ))
+        throw(
+            DimensionMismatch(
+                "expected $(param.length) elements, got $(length(values))"
+            )
+        )
     end
-    copyto!(view(model.θ, param.offset+1:param.offset+param.length), values)
+    copyto!(view(model.θ, (param.offset + 1):(param.offset + param.length)), values)
     return nothing
 end
 
-@inline _var_range(v::Variable) = v.offset+1 : v.offset+v.length
-@inline _con_range(c::Constraint) = c.offset+1 : c.offset+total(c.size)
+@inline _var_range(v::Variable) = (v.offset + 1):(v.offset + v.length)
+@inline _con_range(c::Constraint) = (c.offset + 1):(c.offset + total(c.size))
 
 """
     get_start(model, var::Variable)
@@ -1435,8 +1467,8 @@ end
 
 Return a view of the initial-point values (`x0` for variables, `y0` for constraints).
 """
-get_start(model::ExaModel, v::Variable)    = view(model.meta.x0,   _var_range(v))
-get_start(model::ExaModel, c::Constraint)  = view(model.meta.y0,   _con_range(c))
+get_start(model::ExaModel, v::Variable) = view(model.meta.x0, _var_range(v))
+get_start(model::ExaModel, c::Constraint) = view(model.meta.y0, _con_range(c))
 
 """
     get_lvar(model, var::Variable)
@@ -1467,7 +1499,7 @@ Return a view of the upper bounds for `con`.
 get_ucon(model::ExaModel, c::Constraint) = view(model.meta.ucon, _con_range(c))
 
 @inline function _check_len(got, expected, label)
-    got == expected || throw(DimensionMismatch("$label: expected $expected elements, got $got"))
+    return got == expected || throw(DimensionMismatch("$label: expected $expected elements, got $got"))
 end
 
 """
@@ -1478,12 +1510,12 @@ Update the initial-point values in-place (`x0` for variables, `y0` for constrain
 """
 function set_start!(model::ExaModel, v::Variable, values)
     _check_len(length(values), v.length, "set_start!")
-    copyto!(view(model.meta.x0, _var_range(v)), values)
+    return copyto!(view(model.meta.x0, _var_range(v)), values)
 end
 function set_start!(model::ExaModel, c::Constraint, values)
     n = total(c.size)
     _check_len(length(values), n, "set_start!")
-    copyto!(view(model.meta.y0, _con_range(c)), values)
+    return copyto!(view(model.meta.y0, _con_range(c)), values)
 end
 
 """
@@ -1493,7 +1525,7 @@ Update the lower bounds for `var` in-place.
 """
 function set_lvar!(model::ExaModel, v::Variable, values)
     _check_len(length(values), v.length, "set_lvar!")
-    copyto!(view(model.meta.lvar, _var_range(v)), values)
+    return copyto!(view(model.meta.lvar, _var_range(v)), values)
 end
 
 """
@@ -1503,7 +1535,7 @@ Update the upper bounds for `var` in-place.
 """
 function set_uvar!(model::ExaModel, v::Variable, values)
     _check_len(length(values), v.length, "set_uvar!")
-    copyto!(view(model.meta.uvar, _var_range(v)), values)
+    return copyto!(view(model.meta.uvar, _var_range(v)), values)
 end
 
 """
@@ -1514,7 +1546,7 @@ Update the lower bounds for `con` in-place.
 function set_lcon!(model::ExaModel, c::Constraint, values)
     n = total(c.size)
     _check_len(length(values), n, "set_lcon!")
-    copyto!(view(model.meta.lcon, _con_range(c)), values)
+    return copyto!(view(model.meta.lcon, _con_range(c)), values)
 end
 
 """
@@ -1525,7 +1557,7 @@ Update the upper bounds for `con` in-place.
 function set_ucon!(model::ExaModel, c::Constraint, values)
     n = total(c.size)
     _check_len(length(values), n, "set_ucon!")
-    copyto!(view(model.meta.ucon, _con_range(c)), values)
+    return copyto!(view(model.meta.ucon, _con_range(c)), values)
 end
 
 """
@@ -1537,15 +1569,15 @@ tying each to the corresponding generator expression.
 Returns `(core, Variable)`.
 """
 @inline function add_var(
-    c::C,
-    gen::Base.Generator;
-    tag = nothing,
-    name = nothing,
-    start = zero(T),
-    lvar = T(-Inf),
-    uvar = T(Inf),
-    kwargs...
-) where {T,C<:ExaCore{T}}
+        c::C,
+        gen::Base.Generator;
+        tag = nothing,
+        name = nothing,
+        start = zero(T),
+        lvar = T(-Inf),
+        uvar = T(Inf),
+        kwargs...
+    ) where {T, C <: ExaCore{T}}
     gen = _adapt_gen(gen)
     n = length(gen.iter)
     c, x = add_var(c, n; tag, name = name, start = start, lvar = lvar, uvar = uvar, kwargs...)
@@ -1585,12 +1617,12 @@ Objective
   where |I| = 10
 ```
 """
-@inline function add_obj(c::C, gen; name = nothing) where {T, C<:ExaCore{T}}
+@inline function add_obj(c::C, gen; name = nothing) where {T, C <: ExaCore{T}}
     gen = _adapt_gen(gen)
     f = SIMDFunction(T, gen, c.nobj, c.nnzg, c.nnzh)
     pars = gen.iter
 
-    _add_obj(c, f, pars, name)
+    return _add_obj(c, f, pars, name)
 end
 
 """
@@ -1605,10 +1637,10 @@ When `name` is given as `Val(:name)`, the objective is also accessible as
 Prefer the generator form (`add_obj(core, gen)`) for typical use; this form
 is intended for code that builds expression trees programmatically.
 """
-@inline function add_obj(c::C, expr::N, pars = 1:1; name = nothing) where {T,C<:ExaCore{T},N<:AbstractNode}
+@inline function add_obj(c::C, expr::N, pars = 1:1; name = nothing) where {T, C <: ExaCore{T}, N <: AbstractNode}
     f = _simdfunction(T, expr, c.nobj, c.nnzg, c.nnzh)
 
-      _add_obj(c, f, pars, name)
+    return _add_obj(c, f, pars, name)
 end
 
 @inline function _add_obj(c, f, pars, name = nothing)
@@ -1622,13 +1654,21 @@ end
 # from the merge, since the merged tree's footprint is its own
 @inline function _add_obj_store(m::Tuple, c, obj, f, name, nitr, nobj)
     objs2, s1, s2 = m
-    (ExaCore(c; nobj=nobj, nnzg=c.nnzg+nitr*s1, nnzh=c.nnzh+nitr*s2,
-             obj=objs2, refs = add_refs(c.refs, name, obj)), obj)
+    return (
+        ExaCore(
+            c; nobj = nobj, nnzg = c.nnzg + nitr * s1, nnzh = c.nnzh + nitr * s2,
+            obj = objs2, refs = add_refs(c.refs, name, obj)
+        ), obj,
+    )
 end
 # statically non-mergeable: stored plain
 @inline _add_obj_store(::Nothing, c, obj, f, name, nitr, nobj) =
-    (ExaCore(c; nobj=nobj, nnzg=c.nnzg+nitr*f.o1step, nnzh=c.nnzh+nitr*f.o2step,
-             obj=_prep(c.obj, obj), refs = add_refs(c.refs, name, obj)), obj)
+    (
+    ExaCore(
+        c; nobj = nobj, nnzg = c.nnzg + nitr * f.o1step, nnzh = c.nnzh + nitr * f.o2step,
+        obj = _prep(c.obj, obj), refs = add_refs(c.refs, name, obj)
+    ), obj,
+)
 
 
 """
@@ -1698,34 +1738,34 @@ Constraint
 ```
 """
 @inline function add_con(
-    c::C,
-    ns...;
-    tag = nothing, 
-    name = nothing,
-    start = zero(T),
-    lcon = zero(T),
-    ucon = zero(T),
-    kwargs...
-) where {T,C<:ExaCore{T}}
+        c::C,
+        ns...;
+        tag = nothing,
+        name = nothing,
+        start = zero(T),
+        lcon = zero(T),
+        ucon = zero(T),
+        kwargs...
+    ) where {T, C <: ExaCore{T}}
 
     gen = _get_generator(ns)
     dims = _get_con_dims(ns)
     gen = _adapt_gen(gen)
     f, pars = _get_function_and_iter(T, gen, c)
-    
-    _add_con(c, f, pars, dims, start, lcon, ucon, name, tag)
+
+    return _add_con(c, f, pars, dims, start, lcon, ucon, name, tag)
 end
 
 @inline _get_generator(ns) = (Null(nothing) for _ in _empty_con_itr(ns))
-@inline _get_generator(gen::Tuple{G}) where G <: Base.Generator = gen[1]
-@inline _get_generator(n::Tuple{N}) where N <: AbstractNode = (n[1] for _ in 1:1)
-@inline _get_generator(n::Tuple{E, I}) where {E<:AbstractNode, I} = n
+@inline _get_generator(gen::Tuple{G}) where {G <: Base.Generator} = gen[1]
+@inline _get_generator(n::Tuple{N}) where {N <: AbstractNode} = (n[1] for _ in 1:1)
+@inline _get_generator(n::Tuple{E, I}) where {E <: AbstractNode, I} = n
 
 # Infer constraint dims from the original arguments, preserving range start info.
 @inline _get_con_dims(ns) = ns
-@inline _get_con_dims(gen::Tuple{G}) where G <: Base.Generator = _infer_subexpr_dims(gen[1].iter)
-@inline _get_con_dims(n::Tuple{N}) where N <: AbstractNode = (1,)
-@inline _get_con_dims(n::Tuple{E, I}) where {E<:AbstractNode, I} = _infer_subexpr_dims(n[2])
+@inline _get_con_dims(gen::Tuple{G}) where {G <: Base.Generator} = _infer_subexpr_dims(gen[1].iter)
+@inline _get_con_dims(n::Tuple{N}) where {N <: AbstractNode} = (1,)
+@inline _get_con_dims(n::Tuple{E, I}) where {E <: AbstractNode, I} = _infer_subexpr_dims(n[2])
 
 # Build an iterator for empty constraints: 1:n for 1D, collected ProductIterator for multi-dim.
 _empty_con_itr(ns::Tuple{Any}) = 1:_length(ns[1])
@@ -1737,7 +1777,7 @@ _empty_con_itr(ns::Tuple) = collect(Iterators.product(map(n -> 1:_length(n), ns)
     pars = gen.iter
     return f, pars
 end
-@inline function _get_function_and_iter(T, gen::Tuple{E, I}, c) where {E<:AbstractNode, I}
+@inline function _get_function_and_iter(T, gen::Tuple{E, I}, c) where {E <: AbstractNode, I}
     f = _simdfunction(T, gen[1], c.ncon, c.nnzj, c.nnzh)
     pars = gen[2]
     return f, pars
@@ -1754,23 +1794,31 @@ function _add_con(c, f, pars, dims, start, lcon, ucon, name, tag)
 
     con = Constraint(f, convert_array(pars, c.backend), o, dims, tag)
 
-    return _add_con_store(_merge_block(c, f, pars, dims, tag),
-                          c, con, f, name, nitr, ncon, y0, lcon, ucon)
+    return _add_con_store(
+        _merge_block(c, f, pars, dims, tag),
+        c, con, f, name, nitr, ncon, y0, lcon, ucon
+    )
 end
 
 # merged into a family: the per-row nnz steps come back from the merge
 @inline function _add_con_store(m::Tuple, c, con, f, name, nitr, ncon, y0, lcon, ucon)
     cons2, s1, s2 = m
-    (ExaCore(c; ncon=ncon, nnzj=c.nnzj+nitr*s1, nnzh=c.nnzh+nitr*s2, y0=y0,
-             lcon=lcon, ucon=ucon, cons=cons2, refs = add_refs(c.refs, name, con)), con)
+    return (
+        ExaCore(
+            c; ncon = ncon, nnzj = c.nnzj + nitr * s1, nnzh = c.nnzh + nitr * s2, y0 = y0,
+            lcon = lcon, ucon = ucon, cons = cons2, refs = add_refs(c.refs, name, con)
+        ), con,
+    )
 end
 # statically non-mergeable: stored plain
 @inline _add_con_store(::Nothing, c, con, f, name, nitr, ncon, y0, lcon, ucon) =
-    (ExaCore(c; ncon=ncon, nnzj=c.nnzj+nitr*f.o1step, nnzh=c.nnzh+nitr*f.o2step, y0=y0,
-             lcon=lcon, ucon=ucon, cons=_prep(c.cons, con),
-             refs = add_refs(c.refs, name, con)), con)
-
-
+    (
+    ExaCore(
+        c; ncon = ncon, nnzj = c.nnzj + nitr * f.o1step, nnzh = c.nnzh + nitr * f.o2step, y0 = y0,
+        lcon = lcon, ucon = ucon, cons = _prep(c.cons, con),
+        refs = add_refs(c.refs, name, con)
+    ), con,
+)
 
 
 """
@@ -1837,13 +1885,13 @@ add_con!(c, bus, arc.bus => p[arc.i] for arc in data.arc)              # add arc
 add_con!(c, bus, gen.bus => -pg[gen.i] for gen in data.gen)            # subtract generation
 ```
 """
-@inline function add_con!(c::C, c1, gen::Base.Generator; tag = nothing) where {T, C<:ExaCore{T}}
+@inline function add_con!(c::C, c1, gen::Base.Generator; tag = nothing) where {T, C <: ExaCore{T}}
 
     gen = _adapt_gen(gen)
     f = SIMDFunction(T, gen, offset0(c1, 0), c.nnzj, c.nnzh)
     pars = gen.iter
 
-    _add_con!(c, f, pars, _constraint_dims(c1), tag)
+    return _add_con!(c, f, pars, _constraint_dims(c1), tag)
 end
 
 """
@@ -1863,7 +1911,7 @@ c, g = add_con(c, 9; lcon = -1.0, ucon = 1.0)
 c, _ = add_con!(c, g[i] += x[i] + x[i+1] for i = 1:9)
 ```
 """
-@inline function add_con!(c::ExaCore{T}, gen::Base.Generator; tag = nothing) where T
+@inline function add_con!(c::ExaCore{T}, gen::Base.Generator; tag = nothing) where {T}
     gen = _adapt_gen(gen)
 
     # Probe the generator: the result is a ConAugPair which carries the target
@@ -1871,7 +1919,7 @@ c, _ = add_con!(c, g[i] += x[i] + x[i+1] for i = 1:9)
     probe = gen.f(DataSource())
     probe isa ConAugPair || error(
         "add_con! two-argument form requires `constraint[idx] += expr` syntax " *
-        "in the generator body"
+            "in the generator body"
     )
     con = probe.con
 
@@ -1898,7 +1946,7 @@ function _add_con!(c, f, pars, dims, tag)
     # them on host only would make a model's nnz counts backend-dependent
     nnzj = c.nnzj + nitr * f.o1step
     nnzh = c.nnzh + nitr * f.o2step
-    (ExaCore(c; nconaug=nconaug, nnzj=nnzj, nnzh=nnzh, cons=_prep(c.cons, con)), con)
+    return (ExaCore(c; nconaug = nconaug, nnzj = nnzj, nnzh = nnzh, cons = _prep(c.cons, con)), con)
 end
 
 # Helper to infer dimensions from iterator
@@ -1961,8 +2009,10 @@ c, s = add_expr(c, x[i, k]^2 for (i, k) in itr)
 # s[i, k] substitutes x[i,k]^2 directly
 ```
 """
-@inline function add_expr(c::C, gen::Base.Generator; name = nothing, tag = nothing,
-                          lift = false, buffered = Val(false), start = zero(T)) where {T, C <: ExaCore{T}}
+@inline function add_expr(
+        c::C, gen::Base.Generator; name = nothing, tag = nothing,
+        lift = false, buffered = Val(false), start = zero(T)
+    ) where {T, C <: ExaCore{T}}
     # `lift = true` introduces the subexpression as a VARIABLE pinned by a
     # defining equality constraint; `buffered = true` evaluates it once per
     # row into a θ-backed buffer (subexpr.jl); the default splices the node
@@ -1976,7 +2026,7 @@ end
 @inline _add_expr_route(::Val{false}, c, gen, buffered, name, tag, start) =
     _add_expr(c, gen, buffered, name, tag)
 
-@inline function _add_expr(c::C, gen, ::Val{false}, name, tag) where {T,C<:ExaCore{T}}
+@inline function _add_expr(c::C, gen, ::Val{false}, name, tag) where {T, C <: ExaCore{T}}
     ns = _infer_subexpr_dims(gen.iter)
 
     gen = _adapt_gen(gen)
@@ -1998,7 +2048,7 @@ function _add_expr_lifted(c::ExaCore{T}, gen::Base.Generator, name, tag, start) 
     return c, v
 end
 
-@inline function _add_expr(c::C, gen, ::Val{true}, name, tag) where {T,C<:ExaCore{T}}
+@inline function _add_expr(c::C, gen, ::Val{true}, name, tag) where {T, C <: ExaCore{T}}
     ns = _infer_subexpr_dims(gen.iter)
 
     gen = _adapt_gen(gen)
@@ -2039,8 +2089,8 @@ function _reduce_term!(tj, ts, tw, initv, j, ex, coef)
     v === nothing && throw(
         ArgumentError(
             "add_reduce terms must be affine combinations of buffered " *
-            "subexpression slots and variables with constant coefficients; " *
-            "got a $(typeof(ex)) leaf",
+                "subexpression slots and variables with constant coefficients; " *
+                "got a $(typeof(ex)) leaf",
         ),
     )
     initv[j] += coef * v
@@ -2057,20 +2107,20 @@ end
 _reduce_term!(tj, ts, tw, initv, j, ex::ParameterNode, coef) = throw(
     ArgumentError(
         "add_reduce does not support parameter sources or parameter-dependent " *
-        "weights; evaluate the parameter-dependent part in a buffered add_expr " *
-        "stage and reduce over its slots instead",
+            "weights; evaluate the parameter-dependent part in a buffered add_expr " *
+            "stage and reduce over its slots instead",
     ),
 )
 _reduce_term!(tj, ts, tw, initv, j, ex::SubexprNode, coef) = throw(
     ArgumentError(
         "add_reduce indices must be data values, not symbolic expressions " *
-        "(the slot index of every term must be known at build time)",
+            "(the slot index of every term must be known at build time)",
     ),
 )
 _reduce_term!(tj, ts, tw, initv, j, ex::Var, coef) = throw(
     ArgumentError(
         "add_reduce indices must be data values, not symbolic expressions " *
-        "(the variable index of every term must be known at build time)",
+            "(the variable index of every term must be known at build time)",
     ),
 )
 function _reduce_term!(tj, ts, tw, initv, j, ex::Node1{F}, coef) where {F}
@@ -2100,7 +2150,7 @@ function _reduce_term!(tj, ts, tw, initv, j, ex::Node2{F}, coef) where {F}
             throw(
                 ArgumentError(
                     "add_reduce terms must be affine; a product of two " *
-                    "non-constant expressions is not",
+                        "non-constant expressions is not",
                 ),
             )
         end
@@ -2109,7 +2159,7 @@ function _reduce_term!(tj, ts, tw, initv, j, ex::Node2{F}, coef) where {F}
         b === nothing && throw(
             ArgumentError(
                 "add_reduce terms must be affine; division by a non-constant " *
-                "expression is not",
+                    "expression is not",
             ),
         )
         _reduce_term!(tj, ts, tw, initv, j, ex.inner1, coef / b)
@@ -2158,13 +2208,13 @@ and on KernelAbstractions backends, with the same restrictions as other
 buffered subexpressions (no oracles, no `prod = true`).
 """
 function add_reduce(
-    c::C,
-    n,
-    pairs;
-    init = zero(T),
-    name = nothing,
-    tag = nothing,
-) where {T,C<:ExaCore{T}}
+        c::C,
+        n,
+        pairs;
+        init = zero(T),
+        name = nothing,
+        tag = nothing,
+    ) where {T, C <: ExaCore{T}}
     nn = Int(n)
     o = c.npar
     initv = zeros(T, nn)
@@ -2202,8 +2252,8 @@ function add_reduce(
     end
     ptr = Vector{Int}(undef, nn + 1)
     ptr[1] = 1
-    for j = 1:nn
-        ptr[j+1] = ptr[j] + counts[j]
+    for j in 1:nn
+        ptr[j + 1] = ptr[j] + counts[j]
     end
     perm = sortperm(tj)
     stage = SubexprReduceStage(
@@ -2228,7 +2278,7 @@ function add_reduce(
     )
 end
 
-function jac_structure!(m::AbstractExaModel{T}, rows::AbstractVector, cols::AbstractVector) where T
+function jac_structure!(m::AbstractExaModel{T}, rows::AbstractVector, cols::AbstractVector) where {T}
     _jac_structure_impl!(m, _subexprs(m), rows, cols)
     return rows, cols
 end
@@ -2244,10 +2294,10 @@ end
 _jac_structure!(T, cons::Tuple{}, rows, cols) = nothing
 @inline function _jac_structure!(T, cons::Tuple, rows, cols)
     _jac_structure!(T, Base.tail(cons), rows, cols)
-    sjacobian!(rows, cols, first(cons), NaNSource{T}(), NaNSource{T}(), T(NaN))
+    return sjacobian!(rows, cols, first(cons), NaNSource{T}(), NaNSource{T}(), T(NaN))
 end
 
-function hess_structure!(m::AbstractExaModel{T}, rows::AbstractVector, cols::AbstractVector) where T
+function hess_structure!(m::AbstractExaModel{T}, rows::AbstractVector, cols::AbstractVector) where {T}
     _hess_structure_impl!(m, _subexprs(m), rows, cols)
     return rows, cols
 end
@@ -2266,13 +2316,13 @@ end
 _obj_hess_structure!(T, objs::Tuple{}, rows, cols) = nothing
 @inline function _obj_hess_structure!(T, objs::Tuple, rows, cols)
     _obj_hess_structure!(T, Base.tail(objs), rows, cols)
-    shessian!(rows, cols, first(objs), NaNSource{T}(), NaNSource{T}(), T(NaN), T(NaN))
+    return shessian!(rows, cols, first(objs), NaNSource{T}(), NaNSource{T}(), T(NaN), T(NaN))
 end
 
 _con_hess_structure!(T, cons::Tuple{}, rows, cols) = nothing
 @inline function _con_hess_structure!(T, cons::Tuple, rows, cols)
     _con_hess_structure!(T, Base.tail(cons), rows, cols)
-    shessian!(rows, cols, first(cons), NaNSource{T}(), NaNSource{T}(), T(NaN), T(NaN))
+    return shessian!(rows, cols, first(cons), NaNSource{T}(), NaNSource{T}(), T(NaN), T(NaN))
 end
 
 # Buffered-subexpression access: only ExaModel carries stages (oracle models
@@ -2304,7 +2354,7 @@ end
 
 @inline function _cons_nln!(cons::Tuple, x, θ, g)
     _cons_nln!(Base.tail(cons), x, θ, g)
-    _cons_rows!(g, first(cons), x, θ)
+    return _cons_rows!(g, first(cons), x, θ)
 end
 _cons_nln!(cons::Tuple{}, x, θ, g) = nothing
 
@@ -2315,7 +2365,6 @@ _cons_nln!(cons::Tuple{}, x, θ, g) = nothing
     end
     return nothing
 end
-
 
 
 function grad!(m::AbstractExaModel, x::AbstractVector, f::AbstractVector)
@@ -2336,7 +2385,7 @@ end
 
 @inline function _grad!(objs::Tuple, x, θ, f)
     _grad!(Base.tail(objs), x, θ, f)
-    gradient!(f, first(objs), x, θ, one(eltype(f)))
+    return gradient!(f, first(objs), x, θ, one(eltype(f)))
 end
 _grad!(objs::Tuple{}, x, θ, f) = nothing
 
@@ -2359,7 +2408,7 @@ end
 _jac_coord!(cons::Tuple{}, x, θ, jac) = nothing
 @inline function _jac_coord!(cons::Tuple, x, θ, jac)
     _jac_coord!(Base.tail(cons), x, θ, jac)
-    sjacobian!(jac, nothing, first(cons), x, θ, one(eltype(jac)))
+    return sjacobian!(jac, nothing, first(cons), x, θ, one(eltype(jac)))
 end
 
 function jprod_nln!(m::AbstractExaModel, x::AbstractVector, v::AbstractVector, Jv::AbstractVector)
@@ -2384,7 +2433,7 @@ end
 _jprod_nln!(cons::Tuple{}, x, θ, v, Jv) = nothing
 @inline function _jprod_nln!(cons::Tuple, x, θ, v, Jv)
     _jprod_nln!(Base.tail(cons), x, θ, v, Jv)
-    sjacobian!((Jv, v), nothing, first(cons), x, θ, one(eltype(Jv)))
+    return sjacobian!((Jv, v), nothing, first(cons), x, θ, one(eltype(Jv)))
 end
 
 function jtprod_nln!(m::AbstractExaModel, x::AbstractVector, v::AbstractVector, Jtv::AbstractVector)
@@ -2409,26 +2458,26 @@ end
 _jtprod_nln!(cons::Tuple{}, x, θ, v, Jtv) = nothing
 @inline function _jtprod_nln!(cons::Tuple, x, θ, v, Jtv)
     _jtprod_nln!(Base.tail(cons), x, θ, v, Jtv)
-    sjacobian!(nothing, (Jtv, v), first(cons), x, θ, one(eltype(Jtv)))
+    return sjacobian!(nothing, (Jtv, v), first(cons), x, θ, one(eltype(Jtv)))
 end
 
 function hess_coord!(
-    m::AbstractExaModel,
-    x::AbstractVector,
-    hess::AbstractVector;
-    obj_weight = one(eltype(x)),
-)
+        m::AbstractExaModel,
+        x::AbstractVector,
+        hess::AbstractVector;
+        obj_weight = one(eltype(x)),
+    )
     _hess_coord_impl!(m, _subexprs(m), x, nothing, hess, obj_weight)
     return hess
 end
 
 function hess_coord!(
-    m::AbstractExaModel,
-    x::AbstractVector,
-    y::AbstractVector,
-    hess::AbstractVector;
-    obj_weight = one(eltype(x)),
-)
+        m::AbstractExaModel,
+        x::AbstractVector,
+        y::AbstractVector,
+        hess::AbstractVector;
+        obj_weight = one(eltype(x)),
+    )
     _hess_coord_impl!(m, _subexprs(m), x, y, hess, obj_weight)
     return hess
 end
@@ -2459,34 +2508,34 @@ end
 _obj_hess_coord!(objs::Tuple{}, x, θ, hess, obj_weight) = nothing
 @inline function _obj_hess_coord!(objs::Tuple, x, θ, hess, obj_weight)
     _obj_hess_coord!(Base.tail(objs), x, θ, hess, obj_weight)
-    shessian!(hess, nothing, first(objs), x, θ, obj_weight, zero(eltype(hess)))
+    return shessian!(hess, nothing, first(objs), x, θ, obj_weight, zero(eltype(hess)))
 end
 
 _con_hess_coord!(cons::Tuple{}, x, θ, y, hess, obj_weight) = nothing
 @inline function _con_hess_coord!(cons::Tuple, x, θ, y, hess, obj_weight)
     _con_hess_coord!(Base.tail(cons), x, θ, y, hess, obj_weight)
-    shessian!(hess, nothing, first(cons), x, θ, y, zero(eltype(hess)))
+    return shessian!(hess, nothing, first(cons), x, θ, y, zero(eltype(hess)))
 end
 
 function hprod!(
-    m::AbstractExaModel,
-    x::AbstractVector,
-    v::AbstractVector,
-    Hv::AbstractVector;
-    obj_weight = one(eltype(x)),
-)
+        m::AbstractExaModel,
+        x::AbstractVector,
+        v::AbstractVector,
+        Hv::AbstractVector;
+        obj_weight = one(eltype(x)),
+    )
     _hprod_impl!(m, _subexprs(m), x, nothing, v, Hv, obj_weight)
     return Hv
 end
 
 function hprod!(
-    m::AbstractExaModel,
-    x::AbstractVector,
-    y::AbstractVector,
-    v::AbstractVector,
-    Hv::AbstractVector;
-    obj_weight = one(eltype(x)),
-)
+        m::AbstractExaModel,
+        x::AbstractVector,
+        y::AbstractVector,
+        v::AbstractVector,
+        Hv::AbstractVector;
+        obj_weight = one(eltype(x)),
+    )
     _hprod_impl!(m, _subexprs(m), x, y, v, Hv, obj_weight)
     return Hv
 end
@@ -2519,13 +2568,13 @@ end
 _obj_hprod!(objs::Tuple{}, x, θ, v, Hv, obj_weight) = nothing
 @inline function _obj_hprod!(objs::Tuple, x, θ, v, Hv, obj_weight)
     _obj_hprod!(Base.tail(objs), x, θ, v, Hv, obj_weight)
-    shessian!((Hv, v), nothing, first(objs), x, θ, obj_weight, zero(eltype(Hv)))
+    return shessian!((Hv, v), nothing, first(objs), x, θ, obj_weight, zero(eltype(Hv)))
 end
 
 _con_hprod!(cons::Tuple{}, x, θ, y, v, Hv, obj_weight) = nothing
 @inline function _con_hprod!(cons::Tuple, x, θ, y, v, Hv, obj_weight)
     _con_hprod!(Base.tail(cons), x, θ, y, v, Hv, obj_weight)
-    shessian!((Hv, v), nothing, first(cons), x, θ, y, zero(eltype(Hv)))
+    return shessian!((Hv, v), nothing, first(cons), x, θ, y, zero(eltype(Hv)))
 end
 
 @inbounds @inline offset0(a, i) = offset0(a.f, i)
@@ -2534,31 +2583,31 @@ end
 @inbounds @inline offset2(a, i) = offset2(a.f, i)
 # 3-arg form: used by KA extension kernels which receive (f::SIMDFunction, itr, i)
 @inbounds @inline offset0(f, itr, i) = offset0(f, i)
-@inbounds @inline offset0(f::F, itr, i) where {P<:Pair,F<:SIMDFunction{P}} =
+@inbounds @inline offset0(f::F, itr, i) where {P <: Pair, F <: SIMDFunction{P}} =
     f.o0 + f.f.first(itr[i], nothing, nothing)
-@inbounds @inline offset0(f::F, itr, i) where {I<:Integer,P<:Pair{I},F<:SIMDFunction{P}} =
+@inbounds @inline offset0(f::F, itr, i) where {I <: Integer, P <: Pair{I}, F <: SIMDFunction{P}} =
     f.o0 + f.f.first
-@inbounds @inline offset0(f::F, i) where {F<:SIMDFunction} = f.o0 + i
-@inbounds @inline offset1(f::F, i) where {F<:SIMDFunction} = f.o1 + f.o1step * (i - 1)
-@inbounds @inline offset2(f::F, i) where {F<:SIMDFunction} = f.o2 + f.o2step * (i - 1)
-@inbounds @inline offset0(a::C, i) where {C<:ConstraintAugmentation} = offset0(a.f, a.itr, i, a.dims)
+@inbounds @inline offset0(f::F, i) where {F <: SIMDFunction} = f.o0 + i
+@inbounds @inline offset1(f::F, i) where {F <: SIMDFunction} = f.o1 + f.o1step * (i - 1)
+@inbounds @inline offset2(f::F, i) where {F <: SIMDFunction} = f.o2 + f.o2step * (i - 1)
+@inbounds @inline offset0(a::C, i) where {C <: ConstraintAugmentation} = offset0(a.f, a.itr, i, a.dims)
 # 4-arg form: used when dims are available (from Constraint.size or ConstraintAugmentation.dims)
-@inbounds @inline offset0(f::F, itr, i, dims) where {P<:Pair,F<:SIMDFunction{P}} =
+@inbounds @inline offset0(f::F, itr, i, dims) where {P <: Pair, F <: SIMDFunction{P}} =
     f.o0 + f.f.first(itr[i], nothing, nothing)
-@inbounds @inline offset0(f::F, itr, i, dims) where {I<:Integer,P<:Pair{I},F<:SIMDFunction{P}} =
+@inbounds @inline offset0(f::F, itr, i, dims) where {I <: Integer, P <: Pair{I}, F <: SIMDFunction{P}} =
     f.o0 + f.f.first
-@inbounds @inline offset0(f::F, itr, i, dims) where {T<:Tuple,P<:Pair{T},F<:SIMDFunction{P}} =
+@inbounds @inline offset0(f::F, itr, i, dims) where {T <: Tuple, P <: Pair{T}, F <: SIMDFunction{P}} =
     f.o0 + idxx(coord(itr, i, f.f.first), dims)
-@inbounds @inline offset0(f::F, itr, i, dims) where {F<:SIMDFunction} = f.o0 + i
+@inbounds @inline offset0(f::F, itr, i, dims) where {F <: SIMDFunction} = f.o0 + i
 
 @inline idx(itr, I) = @inbounds itr[I]
 @inline idx(itr::Base.Iterators.ProductIterator{V}, I) where {V} =
     _idx(I - 1, itr.iterators, Base.size(itr))
 @inline function _idx(n, (vec1, vec...), (si1, si...))
     d, r = divrem(n, si1)
-    return (vec1[r+1], _idx(d, vec, si)...)
+    return (vec1[r + 1], _idx(d, vec, si)...)
 end
-@inline _idx(n, (vec,), ::Tuple{Int}) = @inbounds vec[n+1]
+@inline _idx(n, (vec,), ::Tuple{Int}) = @inbounds vec[n + 1]
 
 @inline idxx(coord, si) = _idxx(coord, si, 1) + 1
 @inline _idxx(coord, si, a) = a * (coord[1] - 1) + _idxx(coord[2:end], si[2:end], a * si[1])
@@ -2598,7 +2647,7 @@ function solution(result::SolverCore.AbstractExecutionStats, x)
     o = x.offset
     len = total(x.size)
     s = size(x.size)
-    return reshape(view(result.solution, (o+1):(o+len)), s...)
+    return reshape(view(result.solution, (o + 1):(o + len)), s...)
 end
 
 """
@@ -2635,7 +2684,7 @@ function multipliers_L(result::SolverCore.AbstractExecutionStats, x)
     o = x.offset
     len = total(x.size)
     s = size(x.size)
-    return reshape(view(result.multipliers_L, (o+1):(o+len)), s...)
+    return reshape(view(result.multipliers_L, (o + 1):(o + len)), s...)
 end
 
 """
@@ -2672,7 +2721,7 @@ function multipliers_U(result::SolverCore.AbstractExecutionStats, x)
     o = x.offset
     len = total(x.size)
     s = size(x.size)
-    return reshape(view(result.multipliers_U, (o+1):(o+len)), s...)
+    return reshape(view(result.multipliers_U, (o + 1):(o + len)), s...)
 end
 
 solution(result::SolverCore.AbstractExecutionStats, x::Var) = result.solution[x.i]
@@ -2710,7 +2759,7 @@ function multipliers(result::SolverCore.AbstractExecutionStats, y::Constraint)
     o = y.offset
     len = total(y.size)
     s = size(y.size)
-    return reshape(view(result.multipliers, (o+1):(o+len)), s...)
+    return reshape(view(result.multipliers, (o + 1):(o + len)), s...)
 end
 
 _adapt_gen(gen) = Base.Generator(gen.f, collect(gen.iter))
@@ -2721,18 +2770,18 @@ _adapt_gen(gen) = Base.Generator(gen.f, collect(gen.iter))
 # on the CPU, where `collect` of a Vector is just a copy.
 _maybe_collect(x) = collect(x)
 _maybe_collect(x::Union{AbstractArray, AbstractRange}) = x
-@inline _adapt_gen(gen::Base.Generator{I}) where {I<:AbstractArgNode} =
+@inline _adapt_gen(gen::Base.Generator{I}) where {I <: AbstractArgNode} =
     Base.Generator(gen.f, ArgCall(_maybe_collect, (gen.iter,)))
 # `for i in 1:nh, j in 1:nc` over symbolic ranges: `collect` on the product
 # needs `axes`, and `axes` needs concrete lengths, so it cannot run yet.  Defer
 # the collect itself — it happens at instantiation, on real ranges.
-@inline _adapt_gen(gen::Base.Generator{P}) where {P<:Base.Iterators.ProductIterator} =
+@inline _adapt_gen(gen::Base.Generator{P}) where {P <: Base.Iterators.ProductIterator} =
     _adapt_prod(_anyarg(gen.iter), gen)
 @inline _adapt_prod(::Val{false}, gen) = Base.Generator(gen.f, collect(gen.iter))
 @inline _adapt_prod(::Val{true}, gen) = Base.Generator(gen.f, ArgCall(collect, (gen.iter,)))
-_adapt_gen(gen::Base.Generator{P}) where {P<:Union{AbstractArray,AbstractRange}} = gen
-_adapt_gen(gen::Tuple{E, I}) where {E<:AbstractNode, I} = (gen[1], collect(gen[2]))
-_adapt_gen(gen::Tuple{E, I}) where {E<:AbstractNode, I<:Union{AbstractArray,AbstractRange}} = gen
+_adapt_gen(gen::Base.Generator{P}) where {P <: Union{AbstractArray, AbstractRange}} = gen
+_adapt_gen(gen::Tuple{E, I}) where {E <: AbstractNode, I} = (gen[1], collect(gen[2]))
+_adapt_gen(gen::Tuple{E, I}) where {E <: AbstractNode, I <: Union{AbstractArray, AbstractRange}} = gen
 
 """
     get_vars(core_or_model[, name])
@@ -2815,14 +2864,17 @@ function _named_block(x, ::Type{K}, name::Symbol, kind::String, f) where {K}
     if _refs_haskey(refs, name)
         other = _refs_get(refs, name)
         what = other isa AbstractVariable ? "a variable (get_vars)" :
-               other isa AbstractConstraint ? "a constraint (get_cons)" :
-               other isa AbstractParameter ? "a parameter (get_pars)" :
-               "a $(nameof(typeof(other)))"
+            other isa AbstractConstraint ? "a constraint (get_cons)" :
+            other isa AbstractParameter ? "a parameter (get_pars)" :
+            "a $(nameof(typeof(other)))"
         throw(ArgumentError("`$name` is $what, not a $kind"))
     end
-    throw(ArgumentError(
-        "this model has no named $kind `$name`; it has $(keys(nt))" *
-        (isempty(keys(nt)) ? " (none — was it added with a `name`?)" : "")))
+    throw(
+        ArgumentError(
+            "this model has no named $kind `$name`; it has $(keys(nt))" *
+                (isempty(keys(nt)) ? " (none — was it added with a `name`?)" : "")
+        )
+    )
 end
 
 @inline _refs_isa(::Type{K}, ::K) where {K} = true
@@ -2834,8 +2886,8 @@ end
 end
 
 function Base.getproperty(core::E, name::Symbol) where {E <: Union{ExaCore, ExaModel}}
-    if hasfield(E, name)
-        getfield(core,name)
+    return if hasfield(E, name)
+        getfield(core, name)
     elseif _refs_haskey(getfield(core, :refs), name)
         _refs_get(getfield(core, :refs), name)
     else
@@ -3090,7 +3142,7 @@ aug = @add_con!(c, g[i] += sin(x[i+1]) for i in 4:6)
 macro add_con!(exs...)
     isempty(exs) && error("@add_con! requires core and generator arguments")
     parts, kwargs = _split_macro_args(exs)
-    core  = parts[1]
+    core = parts[1]
 
     # Oracle form: @add_con!(core, (c1,c2,...), (x,y,...), f!; kwargs...)
     # Detected by a tuple expression as the second argument.
@@ -3130,8 +3182,8 @@ macro add_con!(exs...)
     end
 
     # Three-argument form: @add_con!(core, c1, idx => expr for ...)
-    c1    = parts[2]
-    args  = [_auto_const_gen(a) for a in parts[3:end]]
+    c1 = parts[2]
+    args = [_auto_const_gen(a) for a in parts[3:end]]
 
     con = gensym(:con)
     return quote

@@ -27,14 +27,14 @@ struct SegProd{VI}
     a::VI
     b::VI
 end
-struct SegProdC{VI,VT}
+struct SegProdC{VI, VT}
     dstu::VI
     ptr::VI
     a::VI
     b::VI
     c::VT
 end
-struct SegAxpy{VI,VT}
+struct SegAxpy{VI, VT}
     dstu::VI
     ptr::VI
     a::VI
@@ -49,7 +49,7 @@ function _segment_perm(dst::Vector{Int})
     dstu = Int[]
     ptr = Int[1]
     for k in eachindex(d)
-        if k == 1 || d[k] != d[k-1]
+        if k == 1 || d[k] != d[k - 1]
             push!(dstu, d[k])
             push!(ptr, ptr[end])
         end
@@ -59,7 +59,7 @@ function _segment_perm(dst::Vector{Int})
 end
 
 _dev(x0, v::Vector{Int}) = copyto!(similar(x0, Int, length(v)), v)
-_dev(x0, v::Vector{T}) where {T<:AbstractFloat} = copyto!(similar(x0, length(v)), v)
+_dev(x0, v::Vector{T}) where {T <: AbstractFloat} = copyto!(similar(x0, length(v)), v)
 
 function _seg_copy(x0, dst::Vector{Int}, src::Vector{Int})
     p, dstu, ptr = _segment_perm(dst)
@@ -81,7 +81,7 @@ end
 @kernel function kseg_copy(y, @Const(dstu), @Const(ptr), @Const(src), @Const(S))
     I = @index(Global)
     acc = zero(eltype(y))
-    @inbounds for j = ptr[I]:(ptr[I+1]-1)
+    @inbounds for j in ptr[I]:(ptr[I + 1] - 1)
         acc += S[src[j]]
     end
     @inbounds y[dstu[I]] += acc
@@ -89,7 +89,7 @@ end
 @kernel function kseg_prod(y, @Const(dstu), @Const(ptr), @Const(a), @Const(b), @Const(A), @Const(B))
     I = @index(Global)
     acc = zero(eltype(y))
-    @inbounds for j = ptr[I]:(ptr[I+1]-1)
+    @inbounds for j in ptr[I]:(ptr[I + 1] - 1)
         acc += A[a[j]] * B[b[j]]
     end
     @inbounds y[dstu[I]] += acc
@@ -97,7 +97,7 @@ end
 @kernel function kseg_prodc(y, @Const(dstu), @Const(ptr), @Const(a), @Const(b), @Const(c), @Const(A), @Const(B))
     I = @index(Global)
     acc = zero(eltype(y))
-    @inbounds for j = ptr[I]:(ptr[I+1]-1)
+    @inbounds for j in ptr[I]:(ptr[I + 1] - 1)
         acc += c[j] * A[a[j]] * B[b[j]]
     end
     @inbounds y[dstu[I]] += acc
@@ -105,7 +105,7 @@ end
 @kernel function kseg_axpy(y, @Const(dstu), @Const(ptr), @Const(a), @Const(c), @Const(A))
     I = @index(Global)
     acc = zero(eltype(y))
-    @inbounds for j = ptr[I]:(ptr[I+1]-1)
+    @inbounds for j in ptr[I]:(ptr[I + 1] - 1)
         acc += c[j] * A[a[j]]
     end
     @inbounds y[dstu[I]] += acc
@@ -125,7 +125,7 @@ _run!(backend, s::SegAxpy, y, A) =
 
 @kernel function ksync(θ, @Const(f), @Const(itr), @Const(x), @Const(off))
     I = @index(Global)
-    @inbounds θ[off+I] = f(itr[I], x, θ)
+    @inbounds θ[off + I] = f(itr[I], x, θ)
 end
 
 # Reduce-stage sync: one workitem per destination slot walks its CSR segment
@@ -134,11 +134,11 @@ end
 @kernel function kreduce_sync(θ, @Const(init), @Const(ptr), @Const(src), @Const(w), @Const(x), @Const(off))
     J = @index(Global)
     acc = init[J]
-    @inbounds for m = ptr[J]:(ptr[J+1]-1)
+    @inbounds for m in ptr[J]:(ptr[J + 1] - 1)
         s = src[m]
         acc += s > 0 ? w[m] * x[s] : w[m] * θ[-s]
     end
-    @inbounds θ[off+J] = acc
+    @inbounds θ[off + J] = acc
 end
 
 @kernel function kstagej(y1, @Const(f), @Const(itr), @Const(x), @Const(θ), @Const(o1base))
@@ -164,8 +164,8 @@ end
         nothing,
         o2base + (I - 1) * f.o2step,
         0,
-        λ[θoff+I],
-        μ[θoff+I],
+        λ[θoff + I],
+        μ[θoff + I],
     )
 end
 
@@ -187,28 +187,28 @@ end
 _lamgrad!(backend, y, ::Tuple{}, x, θ, w) = nothing
 function _lamgrad!(backend, y, (obj, objs...), x, θ, w)
     _lamgrad!(backend, y, objs, x, θ, w)
-    _lamgrad1!(backend, y, obj, x, θ, w)
+    return _lamgrad1!(backend, y, obj, x, θ, w)
 end
 # a merged objective's gradient offsets live in its elements
 function _lamgrad1!(backend, y, obj, x, θ, w)
     isempty(obj.itr) && return nothing
-    kerg(backend)(y, obj.f, obj.itr, x, θ, w; ndrange = length(obj.itr))
+    return kerg(backend)(y, obj.f, obj.itr, x, θ, w; ndrange = length(obj.itr))
 end
 function _lamgrad1!(backend, y, obj::ExaModels.Objective{F, I}, x, θ, w) where
-        {F, I <: AbstractVector{<:ExaModels.MergedRow}}
+    {F, I <: AbstractVector{<:ExaModels.MergedRow}}
     isempty(obj.itr) && return nothing
-    ExaModels.sgradient!(backend, y, obj, x, θ, w)
+    return ExaModels.sgradient!(backend, y, obj, x, θ, w)
 end
 
 _lamjac!(backend, y, ::Tuple{}, x, θ, yv) = nothing
 function _lamjac!(backend, y, (con, cons...), x, θ, yv)
     _lamjac!(backend, y, cons, x, θ, yv)
-    _lamjac1!(backend, y, con, x, θ, yv)
+    return _lamjac1!(backend, y, con, x, θ, yv)
 end
 _lamjac1!(backend, y, con, x, θ, yv) = nothing
 function _lamjac1!(backend, y, con::ExaModels.Constraint, x, θ, yv)
     isempty(con.itr) && return nothing
-    kerjs(backend)(y, con.f, con.itr, x, θ, yv, ExaModels._constraint_dims(con); ndrange = length(con.itr))
+    return kerjs(backend)(y, con.f, con.itr, x, θ, yv, ExaModels._constraint_dims(con); ndrange = length(con.itr))
 end
 
 # host-side gradient structure pass (objective comp1 slots → (target, slot))
@@ -229,7 +229,7 @@ end
 
 # ── build-time artifact ───────────────────────────────────────────────────────
 
-struct SubexprKA{T,VT<:AbstractVector{T},VI}
+struct SubexprKA{T, VT <: AbstractVector{T}, VI}
     nvar::Int
     nθ::Int
     # device buffers
@@ -260,20 +260,20 @@ struct SubexprKA{T,VT<:AbstractVector{T},VI}
     ccopy::Vector{SegCopy{VI}}             # per level (newest-first)
     cmul1::Vector{SegProd{VI}}             # rank-2 phase
     cmul2::Vector{SegProd{VI}}             # rank-1 phase
-    amul::Vector{SegProdC{VI,VT}}
-    hmul::Vector{SegProdC{VI,VT}}
-    qc::Vector{SegAxpy{VI,VT}}             # per level: C += coef·abuf2 (reduce μ pairs)
-    qa::Vector{SegAxpy{VI,VT}}             # per level: abuf2 += coef·abuf2
-    qh::SegAxpy{VI,VT}                     # hess += coef·abuf2 (runs after the sweep)
+    amul::Vector{SegProdC{VI, VT}}
+    hmul::Vector{SegProdC{VI, VT}}
+    qc::Vector{SegAxpy{VI, VT}}             # per level: C += coef·abuf2 (reduce μ pairs)
+    qa::Vector{SegAxpy{VI, VT}}             # per level: abuf2 += coef·abuf2
+    qh::SegAxpy{VI, VT}                     # hess += coef·abuf2 (runs after the sweep)
     hess_copy::SegCopy{VI}
 end
 
 function ExaModels.build_subexpr_ka(
-    c::C,
-    sjac,
-    shess,
-    nvar,
-) where {T,VT<:AbstractVector{T},B<:KernelAbstractions.Backend,C<:ExaModels.ExaCore{T,VT,B}}
+        c::C,
+        sjac,
+        shess,
+        nvar,
+    ) where {T, VT <: AbstractVector{T}, B <: KernelAbstractions.Backend, C <: ExaModels.ExaCore{T, VT, B}}
     sjac === nothing && return nothing
     x0 = c.x0
     stages_h = ExaModels._host_blocks(c.subexprs)
@@ -285,7 +285,7 @@ function ExaModels.build_subexpr_ka(
 
     slotlvl = zeros(Int, nθ)
     for (i, s) in enumerate(ordered)
-        slotlvl[(s.offset+1):(s.offset+ExaModels._stage_len(s))] .= i
+        slotlvl[(s.offset + 1):(s.offset + ExaModels._stage_len(s))] .= i
     end
     lvlof(ξ) = ξ > 0 ? 0 : slotlvl[-ξ]
 
@@ -345,7 +345,7 @@ function ExaModels.build_subexpr_ka(
     end
 
     # localrow chain programs per SOURCE level: full (gradient) and slot-only (λ)
-    localrows = Dict{Int,Vector{Tuple{Int,Int}}}()
+    localrows = Dict{Int, Vector{Tuple{Int, Int}}}()
     let res_probe = ExaModels._build_subexpr_jac(T, c.subexprs, c.cons, c.nnzj)
         localrows = res_probe[3]
     end
@@ -364,11 +364,11 @@ function ExaModels.build_subexpr_ka(
 
     seg_res_copy = [
         _seg_copy(x0, sjac.res_copy_dst[r], sjac.res_copy_src[r]) for
-        r in sjac.lvl_res_copy
+            r in sjac.lvl_res_copy
     ]
     seg_res_prod = [
         _seg_prod(x0, sjac.res_prod_dst[r], sjac.res_prod_a[r], sjac.res_prod_b[r])
-        for r in sjac.lvl_res_prod
+            for r in sjac.lvl_res_prod
     ]
 
     seg_ccopy = [_seg_copy(x0, shess.ccopy_dst[r], shess.ccopy_src[r]) for r in shess.lvl_ccopy]
@@ -376,18 +376,18 @@ function ExaModels.build_subexpr_ka(
     seg_cmul2 = SegProd[]
     for (i, r) in enumerate(shess.lvl_cmul)
         ph = shess.cmul_ph[i]
-        r1 = first(r):(first(r)+ph-1)
-        r2 = (first(r)+ph):last(r)
+        r1 = first(r):(first(r) + ph - 1)
+        r2 = (first(r) + ph):last(r)
         push!(seg_cmul1, _seg_prod(x0, shess.cmul_dst[r1], shess.cmul_src[r1], shess.cmul_a[r1]))
         push!(seg_cmul2, _seg_prod(x0, shess.cmul_dst[r2], shess.cmul_src[r2], shess.cmul_a[r2]))
     end
     seg_amul = [
         _seg_prodc(x0, shess.amul_dst[r], shess.amul_src[r], shess.amul_a[r], fill(T(2), length(r)))
-        for r in shess.lvl_amul
+            for r in shess.lvl_amul
     ]
     seg_hmul = [
         _seg_prodc(x0, shess.hmul_dst[r], shess.hmul_src[r], shess.hmul_a[r], shess.hmul_c[r])
-        for r in shess.lvl_hmul
+            for r in shess.lvl_hmul
     ]
     seg_qc = [_seg_axpy(x0, shess.qc_dst[r], shess.qc_j[r], shess.qc_c[r]) for r in shess.lvl_qc]
     seg_qa = [_seg_axpy(x0, shess.qa_dst[r], shess.qa_j[r], shess.qa_c[r]) for r in shess.lvl_qa]
@@ -424,10 +424,10 @@ function ExaModels.build_subexpr_ka(
         SegCopy{VI}[seg_ccopy...],
         SegProd{VI}[seg_cmul1...],
         SegProd{VI}[seg_cmul2...],
-        SegProdC{VI,typeof(similar(x0, 0))}[seg_amul...],
-        SegProdC{VI,typeof(similar(x0, 0))}[seg_hmul...],
-        SegAxpy{VI,typeof(similar(x0, 0))}[seg_qc...],
-        SegAxpy{VI,typeof(similar(x0, 0))}[seg_qa...],
+        SegProdC{VI, typeof(similar(x0, 0))}[seg_amul...],
+        SegProdC{VI, typeof(similar(x0, 0))}[seg_hmul...],
+        SegAxpy{VI, typeof(similar(x0, 0))}[seg_qc...],
+        SegAxpy{VI, typeof(similar(x0, 0))}[seg_qa...],
         seg_qh,
         _seg_copy(x0, shess.hess_copy_dst, shess.hess_copy_src),
     )
@@ -469,7 +469,7 @@ end
 # A reduce stage's one-level Jacobian values are its constant weights.
 function _stagej_ka_stage!(backend, s::ExaModels.SubexprReduceStage, ska, o1base, x, θ)
     if !isempty(s.w)
-        copyto!(view(ska.stage_ext, (o1base+1):(o1base+length(s.w))), s.w)
+        copyto!(view(ska.stage_ext, (o1base + 1):(o1base + length(s.w))), s.w)
     end
     return nothing
 end

@@ -10,10 +10,10 @@ import NLPModels
 function _nested_model(; buffered = false)
     c = ExaCore(concrete = Val(true))
     c, x = add_var(c, 10)
-    c, s = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:9); buffered)
-    c, t = add_expr(c, (s[i] * s[i+1] + x[i] for i in 1:8); buffered)
+    c, s = add_expr(c, (x[i]^2 + sin(x[i + 1]) for i in 1:9); buffered)
+    c, t = add_expr(c, (s[i] * s[i + 1] + x[i] for i in 1:8); buffered)
     c, _ = add_obj(c, (exp(t[i] / 100) * t[i] + cos(x[i]) for i in 1:8))
-    c, _ = add_con(c, (t[i] + x[i+2]^2 for i in 1:8))
+    c, _ = add_con(c, (t[i] + x[i + 2]^2 for i in 1:8))
     return ExaModel(c)
 end
 
@@ -79,7 +79,7 @@ _red_elt(x, i) = x[i]^2 + sin(x[i + 1])
 function _red_vexpr(x, j)
     base = 1.5 + 2.0 * _red_elt(x, j) + 3.0 * _red_elt(x, j + 1) + 0.5 * x[j]
     return j == 1 ? base + 4.0 * _red_elt(x, 4) + 0.25 * x[5] :
-           j == 3 ? base - 1.0 * _red_elt(x, 1) : base
+        j == 3 ? base - 1.0 * _red_elt(x, 1) : base
 end
 
 # Inlined reference: one concrete tree per j (a generator traces ONE symbolic
@@ -91,7 +91,7 @@ function _red_ref_model()
         c, _ = add_obj(c, (_red_vexpr(x, j)^2 + exp(_red_vexpr(x, j) / 10) for _ in 1:1))
     end
     for j in 1:4
-        c, _ = add_con(c, (_red_vexpr(x, j) * x[j+1] + x[j]^2 for _ in 1:1))
+        c, _ = add_con(c, (_red_vexpr(x, j) * x[j + 1] + x[j]^2 for _ in 1:1))
     end
     return ExaModel(c)
 end
@@ -100,17 +100,17 @@ function _red_core(backend)
     c = backend === nothing ? ExaCore(concrete = Val(true)) :
         ExaCore(concrete = Val(true), backend = backend)
     c, x = add_var(c, 6)
-    c, e = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:5); buffered = true)
+    c, e = add_expr(c, (x[i]^2 + sin(x[i + 1]) for i in 1:5); buffered = true)
     pairs = vcat(
         [j => 2.0 * e[j] for j in 1:4],
-        [j => 3.0 * e[j+1] for j in 1:4],
+        [j => 3.0 * e[j + 1] for j in 1:4],
         [1 => 4.0 * e[4], 3 => -1.0 * e[1]],
         [j => 0.5 * x[j] for j in 1:4],
         [1 => 0.25 * x[5]],
     )
     c, v = add_reduce(c, 4, pairs; init = 1.5)
     c, _ = add_obj(c, (v[j]^2 + exp(v[j] / 10) for j in 1:4))
-    c, _ = add_con(c, (v[j] * x[j+1] + x[j]^2 for j in 1:4))
+    c, _ = add_con(c, (v[j] * x[j + 1] + x[j]^2 for j in 1:4))
     return c
 end
 _red_model() = ExaModel(_red_core(nothing))
@@ -121,28 +121,28 @@ function _device_tests(backend)
     m0 = _nested_model(buffered = false)
     c = ExaCore(concrete = Val(true), backend = backend)
     c, x = add_var(c, 10)
-    c, s = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:9); buffered = true)
-    c, t = add_expr(c, (s[i] * s[i+1] + x[i] for i in 1:8); buffered = true)
+    c, s = add_expr(c, (x[i]^2 + sin(x[i + 1]) for i in 1:9); buffered = true)
+    c, t = add_expr(c, (s[i] * s[i + 1] + x[i] for i in 1:8); buffered = true)
     c, _ = add_obj(c, (exp(t[i] / 100) * t[i] + cos(x[i]) for i in 1:8))
-    c, _ = add_con(c, (t[i] + x[i+2]^2 for i in 1:8))
+    c, _ = add_con(c, (t[i] + x[i + 2]^2 for i in 1:8))
     m1 = ExaModel(c)
 
     xh = [sin(3i) + 0.5 for i in 1:10]
     xd = copyto!(similar(m1.meta.x0, 10), xh)
 
-    @test NLPModels.obj(m1, xd) ≈ NLPModels.obj(m0, xh) rtol = 1e-13
+    @test NLPModels.obj(m1, xd) ≈ NLPModels.obj(m0, xh) rtol = 1.0e-13
 
     g0 = zeros(8)
     gd = fill!(similar(m1.meta.x0, 8), 0)
     NLPModels.cons_nln!(m0, xh, g0)
     NLPModels.cons_nln!(m1, xd, gd)
-    @test Array(gd) ≈ g0 rtol = 1e-13
+    @test Array(gd) ≈ g0 rtol = 1.0e-13
 
     d0 = zeros(10)
     dd = fill!(similar(m1.meta.x0, 10), 0)
     NLPModels.grad!(m0, xh, d0)
     NLPModels.grad!(m1, xd, dd)
-    @test Array(dd) ≈ d0 rtol = 1e-13
+    @test Array(dd) ≈ d0 rtol = 1.0e-13
 
     r = zeros(Int, m1.meta.nnzj); cl = zeros(Int, m1.meta.nnzj)
     NLPModels.jac_structure!(m1, r, cl)
@@ -152,7 +152,7 @@ function _device_tests(backend)
     for (i, j, v) in zip(r, cl, Array(vd))
         J1[i, j] += v
     end
-    @test J1 ≈ _dense_jac(m0, xh) rtol = 1e-13
+    @test J1 ≈ _dense_jac(m0, xh) rtol = 1.0e-13
 
     yh = [cos(2i) for i in 1:8]
     yd = copyto!(similar(m1.meta.x0, 8), yh)
@@ -165,7 +165,7 @@ function _device_tests(backend)
         H1[i, j] += v
         i != j && (H1[j, i] += v)
     end
-    @test H1 ≈ _dense_hess(m0, xh, yh; obj_weight = 0.7) rtol = 1e-12
+    return @test H1 ≈ _dense_hess(m0, xh, yh; obj_weight = 0.7) rtol = 1.0e-12
 end
 
 function runtests(; backends = Any[CPU()])
@@ -173,34 +173,34 @@ function runtests(; backends = Any[CPU()])
         m0 = _nested_model(buffered = false)
         m1 = _nested_model(buffered = true)
         xv = [sin(3i) + 0.5 for i in 1:10]
-        h = 1e-6
+        h = 1.0e-6
 
-        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1e-14
+        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1.0e-14
 
         g0 = zeros(8)
         g1 = zeros(8)
         NLPModels.cons_nln!(m0, xv, g0)
         NLPModels.cons_nln!(m1, xv, g1)
-        @test g1 ≈ g0 rtol = 1e-14
+        @test g1 ≈ g0 rtol = 1.0e-14
 
         d0 = zeros(10)
         d1 = zeros(10)
         NLPModels.grad!(m0, xv, d0)
         NLPModels.grad!(m1, xv, d1)
-        @test d1 ≈ d0 rtol = 1e-14
+        @test d1 ≈ d0 rtol = 1.0e-14
 
         # independent check: finite differences on the buffered model
-        h = 1e-6
+        h = 1.0e-6
         fd = [
             (
-                NLPModels.obj(m1, [xv[j] + (j == k ? h : 0.0) for j in 1:10]) -
-                NLPModels.obj(m1, [xv[j] - (j == k ? h : 0.0) for j in 1:10])
-            ) / 2h for k in 1:10
+                    NLPModels.obj(m1, [xv[j] + (j == k ? h : 0.0) for j in 1:10]) -
+                    NLPModels.obj(m1, [xv[j] - (j == k ? h : 0.0) for j in 1:10])
+                ) / 2h for k in 1:10
         ]
-        @test d1 ≈ fd rtol = 1e-6
+        @test d1 ≈ fd rtol = 1.0e-6
 
         # Jacobian: assemble dense from COO on both paths and compare
-        @test _dense_jac(m1) ≈ _dense_jac(m0) rtol = 1e-14
+        @test _dense_jac(m1) ≈ _dense_jac(m0) rtol = 1.0e-14
 
         # Jacobian against finite differences of the constraints
         J1 = _dense_jac(m1)
@@ -208,22 +208,22 @@ function runtests(; backends = Any[CPU()])
             gp = zeros(8); gm = zeros(8)
             NLPModels.cons_nln!(m1, [xv[j] + (j == k ? h : 0.0) for j in 1:10], gp)
             NLPModels.cons_nln!(m1, [xv[j] - (j == k ? h : 0.0) for j in 1:10], gm)
-            @test J1[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-5
+            @test J1[:, k] ≈ (gp .- gm) ./ 2h rtol = 1.0e-5
         end
 
         # Lagrangian Hessian: assemble dense (symmetric) from COO on both paths
         yv = [cos(2i) for i in 1:8]
-        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1e-14
+        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1.0e-14
         @test _dense_hess(m1, xv, yv; obj_weight = 0.3) ≈
-              _dense_hess(m0, xv, yv; obj_weight = 0.3) rtol = 1e-14
-        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1e-14
+            _dense_hess(m0, xv, yv; obj_weight = 0.3) rtol = 1.0e-14
+        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1.0e-14
 
         # Hessian against finite differences of the Lagrangian gradient
         H1 = _dense_hess(m1, xv, yv)
         for k in 1:10
             gp = _lag_grad(m1, [xv[j] + (j == k ? h : 0.0) for j in 1:10], yv)
             gm = _lag_grad(m1, [xv[j] - (j == k ? h : 0.0) for j in 1:10], yv)
-            @test H1[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-5
+            @test H1[:, k] ≈ (gp .- gm) ./ 2h rtol = 1.0e-5
         end
 
         # matrix-vector products against the inlined model
@@ -232,18 +232,18 @@ function runtests(; backends = Any[CPU()])
         Jv0 = zeros(8); Jv1 = zeros(8)
         NLPModels.jprod_nln!(m0, xv, vv, Jv0)
         NLPModels.jprod_nln!(m1, xv, vv, Jv1)
-        @test Jv1 ≈ Jv0 rtol = 1e-14
+        @test Jv1 ≈ Jv0 rtol = 1.0e-14
         Jtv0 = zeros(10); Jtv1 = zeros(10)
         NLPModels.jtprod_nln!(m0, xv, vc, Jtv0)
         NLPModels.jtprod_nln!(m1, xv, vc, Jtv1)
-        @test Jtv1 ≈ Jtv0 rtol = 1e-14
+        @test Jtv1 ≈ Jtv0 rtol = 1.0e-14
         Hv0 = zeros(10); Hv1 = zeros(10)
         NLPModels.hprod!(m0, xv, yv, vv, Hv0; obj_weight = 0.7)
         NLPModels.hprod!(m1, xv, yv, vv, Hv1; obj_weight = 0.7)
-        @test Hv1 ≈ Hv0 rtol = 1e-14
+        @test Hv1 ≈ Hv0 rtol = 1.0e-14
         NLPModels.hprod!(m0, xv, vv, Hv0)
         NLPModels.hprod!(m1, xv, vv, Hv1)
-        @test Hv1 ≈ Hv0 rtol = 1e-14
+        @test Hv1 ≈ Hv0 rtol = 1.0e-14
     end
 
     # Adversarial sharing: duplicate columns inside one stage element's
@@ -254,9 +254,9 @@ function runtests(; backends = Any[CPU()])
         function _edge_model(; buffered = false)
             c = ExaCore(concrete = Val(true))
             c, x = add_var(c, 6)
-            c, s = add_expr(c, (x[i] * x[i+1] + sin(x[i]) * x[i+1] for i in 1:5); buffered)
-            c, _ = add_obj(c, (s[i]^2 + s[i] * s[i+1] + s[i] * x[i] for i in 1:4))
-            c, _ = add_con(c, (s[i]^2 + x[i] * s[i+1] for i in 1:4))
+            c, s = add_expr(c, (x[i] * x[i + 1] + sin(x[i]) * x[i + 1] for i in 1:5); buffered)
+            c, _ = add_obj(c, (s[i]^2 + s[i] * s[i + 1] + s[i] * x[i] for i in 1:4))
+            c, _ = add_con(c, (s[i]^2 + x[i] * s[i + 1] for i in 1:4))
             return ExaModel(c)
         end
         m0 = _edge_model(buffered = false)
@@ -264,13 +264,13 @@ function runtests(; backends = Any[CPU()])
         xv = [0.3 + 0.1i for i in 1:6]
         yv = [1.0, -2.0, 0.5, 3.0]
 
-        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1e-14
+        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1.0e-14
         d0 = zeros(6); d1 = zeros(6)
         NLPModels.grad!(m0, xv, d0)
         NLPModels.grad!(m1, xv, d1)
-        @test d1 ≈ d0 rtol = 1e-14
-        @test _dense_jac(m1, xv) ≈ _dense_jac(m0, xv) rtol = 1e-14
-        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1e-14
+        @test d1 ≈ d0 rtol = 1.0e-14
+        @test _dense_jac(m1, xv) ≈ _dense_jac(m0, xv) rtol = 1.0e-14
+        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1.0e-14
     end
 
     # A LINEAR stage used nonlinearly: its curvature contribution is entirely
@@ -280,10 +280,10 @@ function runtests(; backends = Any[CPU()])
         function _lin_model(; buffered = false)
             c = ExaCore(concrete = Val(true))
             c, x = add_var(c, 5)
-            c, s = add_expr(c, (2.0x[i] + x[i+1] for i in 1:4); buffered)
-            c, t = add_expr(c, (s[i] + s[i+1] for i in 1:3); buffered)  # linear in s
+            c, s = add_expr(c, (2.0x[i] + x[i + 1] for i in 1:4); buffered)
+            c, t = add_expr(c, (s[i] + s[i + 1] for i in 1:3); buffered)  # linear in s
             c, _ = add_obj(c, (t[i]^2 + exp(s[i]) for i in 1:3))
-            c, _ = add_con(c, (t[i] * s[i+1] for i in 1:3))
+            c, _ = add_con(c, (t[i] * s[i + 1] for i in 1:3))
             return ExaModel(c)
         end
         m0 = _lin_model(buffered = false)
@@ -294,10 +294,10 @@ function runtests(; backends = Any[CPU()])
         d0 = zeros(5); d1 = zeros(5)
         NLPModels.grad!(m0, xv, d0)
         NLPModels.grad!(m1, xv, d1)
-        @test d1 ≈ d0 rtol = 1e-14
-        @test _dense_jac(m1, xv) ≈ _dense_jac(m0, xv) rtol = 1e-14
-        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1e-14
-        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1e-14
+        @test d1 ≈ d0 rtol = 1.0e-14
+        @test _dense_jac(m1, xv) ≈ _dense_jac(m0, xv) rtol = 1.0e-14
+        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1.0e-14
+        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1.0e-14
     end
 
     # Deep chain (4 stage levels): exercises multi-level sequential
@@ -306,15 +306,15 @@ function runtests(; backends = Any[CPU()])
         function _chain_model(; buffered = false, n = 8, K = 4)
             c = ExaCore(concrete = Val(true))
             c, x = add_var(c, n)
-            c, s = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:(n-1)); buffered)
+            c, s = add_expr(c, (x[i]^2 + sin(x[i + 1]) for i in 1:(n - 1)); buffered)
             for _ in 2:K
                 sp = s
                 m = length(sp.size[1])
-                c, s = add_expr(c, (sp[i] * sp[i+1] + 0.5sp[i] for i in 1:(m-1)); buffered)
+                c, s = add_expr(c, (sp[i] * sp[i + 1] + 0.5sp[i] for i in 1:(m - 1)); buffered)
             end
             m = length(s.size[1])
             c, _ = add_obj(c, (s[i] / (1 + s[i]^2) for i in 1:m))
-            c, _ = add_con(c, (s[i] * x[i] + x[i+1]^2 for i in 1:m))
+            c, _ = add_con(c, (s[i] * x[i] + x[i + 1]^2 for i in 1:m))
             return ExaModel(c)
         end
         # The inlined reference is unusable here by construction (its compile
@@ -323,27 +323,27 @@ function runtests(; backends = Any[CPU()])
         m1 = _chain_model(buffered = true)
         xv = [0.2 + 0.05i for i in 1:8]
         yv = [1.0, -2.0, 0.5, 1.5]
-        h = 1e-6
+        h = 1.0e-6
         pert(k, d) = [xv[j] + (j == k ? d : 0.0) for j in 1:8]
 
         d1 = zeros(8)
         NLPModels.grad!(m1, xv, d1)
         fd = [(NLPModels.obj(m1, pert(k, h)) - NLPModels.obj(m1, pert(k, -h))) / 2h for k in 1:8]
-        @test d1 ≈ fd rtol = 1e-5
+        @test d1 ≈ fd rtol = 1.0e-5
 
         J1 = _dense_jac(m1, xv)
         for k in 1:8
             gp = zeros(4); gm = zeros(4)
             NLPModels.cons_nln!(m1, pert(k, h), gp)
             NLPModels.cons_nln!(m1, pert(k, -h), gm)
-            @test J1[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-4
+            @test J1[:, k] ≈ (gp .- gm) ./ 2h rtol = 1.0e-4
         end
 
         H1 = _dense_hess(m1, xv, yv)
         for k in 1:8
             gp = _lag_grad(m1, pert(k, h), yv)
             gm = _lag_grad(m1, pert(k, -h), yv)
-            @test H1[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-4
+            @test H1[:, k] ≈ (gp .- gm) ./ 2h rtol = 1.0e-4
         end
     end
 
@@ -354,9 +354,9 @@ function runtests(; backends = Any[CPU()])
             c = ExaCore(concrete = Val(true))
             c, x = add_var(c, 4)
             c, p = add_par(c, 3; value = 0.5)
-            c, s = add_expr(c, (p[i] * x[i]^2 + sin(x[i+1]) for i in 1:3); buffered)
+            c, s = add_expr(c, (p[i] * x[i]^2 + sin(x[i + 1]) for i in 1:3); buffered)
             c, q = add_par(c, 2; value = 2.0)
-            c, t = add_expr(c, (s[i] * q[1] + s[i+1] * q[2] for i in 1:2); buffered)
+            c, t = add_expr(c, (s[i] * q[1] + s[i + 1] * q[2] for i in 1:2); buffered)
             c, _ = add_obj(c, ((t[i] - 1.0)^2 for i in 1:2))
             return c, p, ExaModel(c)
         end
@@ -365,29 +365,29 @@ function runtests(; backends = Any[CPU()])
         xv = [0.3, -0.2, 0.7, 0.4]
         d0 = zeros(4); d1 = zeros(4)
 
-        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1e-14
+        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1.0e-14
         NLPModels.grad!(m0, xv, d0)
         NLPModels.grad!(m1, xv, d1)
-        @test d1 ≈ d0 rtol = 1e-14
-        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1e-14
+        @test d1 ≈ d0 rtol = 1.0e-14
+        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1.0e-14
 
         # updating a parameter must not disturb the buffered segments
         set_value!(c0, p0, [1.5, -0.5, 2.5])
         set_value!(c1, p1, [1.5, -0.5, 2.5])
-        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1e-14
+        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1.0e-14
         NLPModels.grad!(m0, xv, d0)
         NLPModels.grad!(m1, xv, d1)
-        @test d1 ≈ d0 rtol = 1e-14
+        @test d1 ≈ d0 rtol = 1.0e-14
 
         # macro named form registers the handle in the core/model
         c = ExaCore(concrete = Val(true))
         @add_var(c, z, 4)
-        @add_expr(c, sb, z[i]^2 + z[i+1] for i in 1:3; buffered = true)
+        @add_expr(c, sb, z[i]^2 + z[i + 1] for i in 1:3; buffered = true)
         @add_obj(c, sb[i]^2 for i in 1:3)
         @test sb isa BufferedExpression
         m = ExaModel(c)
         @test m.sb isa BufferedExpression
-        @test NLPModels.obj(m, ones(4)) ≈ 12.0 rtol = 1e-14  # 3 terms, (1+1)^2 each
+        @test NLPModels.obj(m, ones(4)) ≈ 12.0 rtol = 1.0e-14  # 3 terms, (1+1)^2 each
 
         # prod = true is refused with buffered subexpressions
         cp = ExaCore(concrete = Val(true))
@@ -403,10 +403,10 @@ function runtests(; backends = Any[CPU()])
         function _solve_model(; buffered = false)
             c = ExaCore(concrete = Val(true))
             c, x = add_var(c, 6)
-            c, s = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:5); buffered)
-            c, t = add_expr(c, (s[i] * s[i+1] + x[i] for i in 1:4); buffered)
+            c, s = add_expr(c, (x[i]^2 + sin(x[i + 1]) for i in 1:5); buffered)
+            c, t = add_expr(c, (s[i] * s[i + 1] + x[i] for i in 1:4); buffered)
             c, _ = add_obj(c, ((t[i] - 1.0)^2 + 0.1 * x[i]^2 for i in 1:4))
-            c, _ = add_con(c, (t[i] + x[i+2] for i in 1:4); lcon = -10.0, ucon = 10.0)
+            c, _ = add_con(c, (t[i] + x[i + 2] for i in 1:4); lcon = -10.0, ucon = 10.0)
             return ExaModel(c)
         end
         m0 = _solve_model(buffered = false)
@@ -415,13 +415,13 @@ function runtests(; backends = Any[CPU()])
         r0 = madnlp(m0; print_level = MadNLP.ERROR)
         r1 = madnlp(m1; print_level = MadNLP.ERROR)
         @test r1.status == r0.status
-        @test r1.objective ≈ r0.objective rtol = 1e-8
-        @test r1.solution ≈ r0.solution rtol = 1e-6
+        @test r1.objective ≈ r0.objective rtol = 1.0e-8
+        @test r1.solution ≈ r0.solution rtol = 1.0e-6
 
         i0 = ipopt(m0; print_level = 0)
         i1 = ipopt(m1; print_level = 0)
-        @test i1.objective ≈ i0.objective rtol = 1e-8
-        @test i1.solution ≈ i0.solution rtol = 1e-6
+        @test i1.objective ≈ i0.objective rtol = 1.0e-8
+        @test i1.solution ≈ i0.solution rtol = 1.0e-6
     end
 
     @testset "Buffered subexpressions (multi-dimensional)" begin
@@ -429,13 +429,13 @@ function runtests(; backends = Any[CPU()])
         m1 = _twodim_model(buffered = true)
         xv = [cos(i) for i in 1:12]
 
-        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1e-14
+        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1.0e-14
 
         d0 = zeros(12)
         d1 = zeros(12)
         NLPModels.grad!(m0, xv, d0)
         NLPModels.grad!(m1, xv, d1)
-        @test d1 ≈ d0 rtol = 1e-14
+        @test d1 ≈ d0 rtol = 1.0e-14
     end
 
     # add_reduce: ragged weighted reduction over slots and variables with init,
@@ -447,20 +447,20 @@ function runtests(; backends = Any[CPU()])
         xv = [0.3 + 0.1i for i in 1:6]
         yv = [1.0, -2.0, 0.5, 3.0]
 
-        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1e-14
+        @test NLPModels.obj(m1, xv) ≈ NLPModels.obj(m0, xv) rtol = 1.0e-14
         c0 = zeros(4); c1 = zeros(4)
         NLPModels.cons_nln!(m0, xv, c0)
         NLPModels.cons_nln!(m1, xv, c1)
-        @test c1 ≈ c0 rtol = 1e-14
+        @test c1 ≈ c0 rtol = 1.0e-14
         d0 = zeros(6); d1 = zeros(6)
         NLPModels.grad!(m0, xv, d0)
         NLPModels.grad!(m1, xv, d1)
-        @test d1 ≈ d0 rtol = 1e-13
-        @test _dense_jac(m1, xv) ≈ _dense_jac(m0, xv) rtol = 1e-13
-        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1e-13
+        @test d1 ≈ d0 rtol = 1.0e-13
+        @test _dense_jac(m1, xv) ≈ _dense_jac(m0, xv) rtol = 1.0e-13
+        @test _dense_hess(m1, xv, yv) ≈ _dense_hess(m0, xv, yv) rtol = 1.0e-13
         @test _dense_hess(m1, xv, yv; obj_weight = 0.3) ≈
-              _dense_hess(m0, xv, yv; obj_weight = 0.3) rtol = 1e-13
-        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1e-13
+            _dense_hess(m0, xv, yv; obj_weight = 0.3) rtol = 1.0e-13
+        @test _dense_hess(m1, xv, nothing) ≈ _dense_hess(m0, xv, nothing) rtol = 1.0e-13
 
         # matrix-vector products
         vv = [cos(5i) for i in 1:6]
@@ -468,15 +468,15 @@ function runtests(; backends = Any[CPU()])
         Jv0 = zeros(4); Jv1 = zeros(4)
         NLPModels.jprod_nln!(m0, xv, vv, Jv0)
         NLPModels.jprod_nln!(m1, xv, vv, Jv1)
-        @test Jv1 ≈ Jv0 rtol = 1e-13
+        @test Jv1 ≈ Jv0 rtol = 1.0e-13
         Jtv0 = zeros(6); Jtv1 = zeros(6)
         NLPModels.jtprod_nln!(m0, xv, vc, Jtv0)
         NLPModels.jtprod_nln!(m1, xv, vc, Jtv1)
-        @test Jtv1 ≈ Jtv0 rtol = 1e-13
+        @test Jtv1 ≈ Jtv0 rtol = 1.0e-13
         Hv0 = zeros(6); Hv1 = zeros(6)
         NLPModels.hprod!(m0, xv, yv, vv, Hv0; obj_weight = 0.7)
         NLPModels.hprod!(m1, xv, yv, vv, Hv1; obj_weight = 0.7)
-        @test Hv1 ≈ Hv0 rtol = 1e-13
+        @test Hv1 ≈ Hv0 rtol = 1.0e-13
     end
 
     # Chained reductions interleaved with traced stages, in both directions
@@ -486,41 +486,49 @@ function runtests(; backends = Any[CPU()])
     @testset "add_reduce (chained, FD)" begin
         c = ExaCore(concrete = Val(true))
         c, x = add_var(c, 6)
-        c, e = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:5); buffered = true)
-        c, r1 = add_reduce(c, 3, vcat([j => 2.0 * e[j] for j in 1:3],
-                                      [j => -0.5 * e[j+2] for j in 1:3],
-                                      [2 => 0.3 * x[6]]); init = [0.1, 0.2, 0.3])
-        c, t = add_expr(c, (r1[i] * r1[i+1] + exp(r1[i] / 10) for i in 1:2); buffered = true)
-        c, r2 = add_reduce(c, 2, vcat([j => 1.5 * t[j] for j in 1:2],
-                                      [j => 0.25 * r1[j] for j in 1:2],
-                                      [1 => 0.5 * x[1]]))
+        c, e = add_expr(c, (x[i]^2 + sin(x[i + 1]) for i in 1:5); buffered = true)
+        c, r1 = add_reduce(
+            c, 3, vcat(
+                [j => 2.0 * e[j] for j in 1:3],
+                [j => -0.5 * e[j + 2] for j in 1:3],
+                [2 => 0.3 * x[6]]
+            ); init = [0.1, 0.2, 0.3]
+        )
+        c, t = add_expr(c, (r1[i] * r1[i + 1] + exp(r1[i] / 10) for i in 1:2); buffered = true)
+        c, r2 = add_reduce(
+            c, 2, vcat(
+                [j => 1.5 * t[j] for j in 1:2],
+                [j => 0.25 * r1[j] for j in 1:2],
+                [1 => 0.5 * x[1]]
+            )
+        )
         c, _ = add_obj(c, (r2[j]^2 + cos(r2[j]) for j in 1:2))
-        c, _ = add_con(c, (r2[j] * x[j+1] + r1[j]^2 for j in 1:2))
+        c, _ = add_con(c, (r2[j] * x[j + 1] + r1[j]^2 for j in 1:2))
         m = ExaModel(c)
 
         xv = [0.2 + 0.07i for i in 1:6]
         yv = [1.3, -0.8]
-        h = 1e-6
+        h = 1.0e-6
         pert(k, d) = [xv[i] + (i == k ? d : 0.0) for i in 1:6]
 
         g = zeros(6)
         NLPModels.grad!(m, xv, g)
         fd = [(NLPModels.obj(m, pert(k, h)) - NLPModels.obj(m, pert(k, -h))) / 2h for k in 1:6]
-        @test g ≈ fd rtol = 1e-5
+        @test g ≈ fd rtol = 1.0e-5
 
         J = _dense_jac(m, xv)
         for k in 1:6
             gp = zeros(2); gm = zeros(2)
             NLPModels.cons_nln!(m, pert(k, h), gp)
             NLPModels.cons_nln!(m, pert(k, -h), gm)
-            @test J[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-4
+            @test J[:, k] ≈ (gp .- gm) ./ 2h rtol = 1.0e-4
         end
 
         H = _dense_hess(m, xv, yv)
         for k in 1:6
             gp = _lag_grad(m, pert(k, h), yv)
             gm = _lag_grad(m, pert(k, -h), yv)
-            @test H[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-4
+            @test H[:, k] ≈ (gp .- gm) ./ 2h rtol = 1.0e-4
         end
     end
 
@@ -531,26 +539,26 @@ function runtests(; backends = Any[CPU()])
         n = 12
         c = ExaCore(concrete = Val(true))
         c, x = add_var(c, 2n)
-        c, s = add_expr(c, (x[2t-1] * x[2t] for t in 1:n); buffered = true)
+        c, s = add_expr(c, (x[2t - 1] * x[2t] for t in 1:n); buffered = true)
         c, v = add_reduce(c, 1, (1 => s[t] for t in 1:n))
         c, _ = add_obj(c, ((v[d])^2 for d in 1:1))
         m = ExaModel(c)
 
         xv = ones(2n)
-        @test NLPModels.obj(m, xv) ≈ Float64(n)^2 rtol = 1e-14
+        @test NLPModels.obj(m, xv) ≈ Float64(n)^2 rtol = 1.0e-14
         g = zeros(2n)
         NLPModels.grad!(m, xv, g)
         @test all(≈(2.0 * n), g)
 
         xv = [0.1 + 0.05i for i in 1:2n]
-        h = 1e-6
+        h = 1.0e-6
         pert(k, d) = [xv[i] + (i == k ? d : 0.0) for i in 1:2n]
         H = _dense_hess(m, xv, nothing)
         for k in 1:2n
             gp = zeros(2n); gm = zeros(2n)
             NLPModels.grad!(m, pert(k, h), gp)
             NLPModels.grad!(m, pert(k, -h), gm)
-            @test H[:, k] ≈ (gp .- gm) ./ 2h rtol = 1e-4
+            @test H[:, k] ≈ (gp .- gm) ./ 2h rtol = 1.0e-4
         end
     end
 
@@ -567,7 +575,7 @@ function runtests(; backends = Any[CPU()])
         xv = [0.5, -0.3, 0.8, 0.1]
         v1 = 2.0 * xv[1]^2 + 1.0
         v2 = -(xv[2]^2 - xv[3]^2) / 2.0 + 0.5
-        @test NLPModels.obj(m, xv) ≈ v1^2 + v2^2 rtol = 1e-14
+        @test NLPModels.obj(m, xv) ≈ v1^2 + v2^2 rtol = 1.0e-14
 
         # non-affine terms, parameter sources, bad indices, init mismatch
         @test_throws ArgumentError add_reduce(c, 2, [1 => s[1] * s[2]])
@@ -582,16 +590,20 @@ function runtests(; backends = Any[CPU()])
             c = ExaCore(concrete = Val(true))
             c, x = add_var(c, 6; start = fill(0.5, 6))
             if reduced
-                c, e = add_expr(c, (x[i]^2 + sin(x[i+1]) for i in 1:5); buffered = true)
-                c, v = add_reduce(c, 4, vcat([j => 2.0 * e[j] for j in 1:4],
-                                             [j => 3.0 * e[j+1] for j in 1:4],
-                                             [j => 0.5 * x[j] for j in 1:4]); init = 1.5)
+                c, e = add_expr(c, (x[i]^2 + sin(x[i + 1]) for i in 1:5); buffered = true)
+                c, v = add_reduce(
+                    c, 4, vcat(
+                        [j => 2.0 * e[j] for j in 1:4],
+                        [j => 3.0 * e[j + 1] for j in 1:4],
+                        [j => 0.5 * x[j] for j in 1:4]
+                    ); init = 1.5
+                )
                 c, _ = add_obj(c, ((v[j] - 1.0)^2 + 0.1 * x[j]^2 for j in 1:4))
-                c, _ = add_con(c, (v[j] + x[j+2] for j in 1:4); lcon = -10.0, ucon = 10.0)
+                c, _ = add_con(c, (v[j] + x[j + 2] for j in 1:4); lcon = -10.0, ucon = 10.0)
             else
                 vex(j) = 1.5 + 2.0 * _red_elt(x, j) + 3.0 * _red_elt(x, j + 1) + 0.5 * x[j]
                 c, _ = add_obj(c, ((vex(j) - 1.0)^2 + 0.1 * x[j]^2 for j in 1:4))
-                c, _ = add_con(c, (vex(j) + x[j+2] for j in 1:4); lcon = -10.0, ucon = 10.0)
+                c, _ = add_con(c, (vex(j) + x[j + 2] for j in 1:4); lcon = -10.0, ucon = 10.0)
             end
             return ExaModel(c)
         end
@@ -600,8 +612,8 @@ function runtests(; backends = Any[CPU()])
         r0 = madnlp(m0; print_level = MadNLP.ERROR)
         r1 = madnlp(m1; print_level = MadNLP.ERROR)
         @test r1.status == r0.status
-        @test r1.objective ≈ r0.objective rtol = 1e-8
-        @test r1.solution ≈ r0.solution rtol = 1e-6
+        @test r1.objective ≈ r0.objective rtol = 1.0e-8
+        @test r1.solution ≈ r0.solution rtol = 1.0e-6
     end
 
     for backend in backends
@@ -616,19 +628,19 @@ function runtests(; backends = Any[CPU()])
             yh = [1.0, -2.0, 0.5, 3.0]
             yd = copyto!(similar(m1.meta.x0, 4), yh)
 
-            @test NLPModels.obj(m1, xd) ≈ NLPModels.obj(m0, xh) rtol = 1e-13
+            @test NLPModels.obj(m1, xd) ≈ NLPModels.obj(m0, xh) rtol = 1.0e-13
 
             g0 = zeros(4)
             gd = fill!(similar(m1.meta.x0, 4), 0)
             NLPModels.cons_nln!(m0, xh, g0)
             NLPModels.cons_nln!(m1, xd, gd)
-            @test Array(gd) ≈ g0 rtol = 1e-13
+            @test Array(gd) ≈ g0 rtol = 1.0e-13
 
             d0 = zeros(6)
             dd = fill!(similar(m1.meta.x0, 6), 0)
             NLPModels.grad!(m0, xh, d0)
             NLPModels.grad!(m1, xd, dd)
-            @test Array(dd) ≈ d0 rtol = 1e-13
+            @test Array(dd) ≈ d0 rtol = 1.0e-13
 
             r = zeros(Int, m1.meta.nnzj); cl = zeros(Int, m1.meta.nnzj)
             NLPModels.jac_structure!(m1, r, cl)
@@ -638,7 +650,7 @@ function runtests(; backends = Any[CPU()])
             for (i, j, v) in zip(r, cl, Array(vd))
                 J1[i, j] += v
             end
-            @test J1 ≈ _dense_jac(m0, xh) rtol = 1e-13
+            @test J1 ≈ _dense_jac(m0, xh) rtol = 1.0e-13
 
             hr = zeros(Int, m1.meta.nnzh); hc = zeros(Int, m1.meta.nnzh)
             NLPModels.hess_structure!(m1, hr, hc)
@@ -649,9 +661,10 @@ function runtests(; backends = Any[CPU()])
                 H1[i, j] += v
                 i != j && (H1[j, i] += v)
             end
-            @test H1 ≈ _dense_hess(m0, xh, yh; obj_weight = 0.7) rtol = 1e-12
+            @test H1 ≈ _dense_hess(m0, xh, yh; obj_weight = 0.7) rtol = 1.0e-12
         end
     end
+    return
 end
 
 end # module
