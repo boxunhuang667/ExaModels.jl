@@ -619,6 +619,19 @@ end
 @inline instantiate(n::ArgLeaf, a::Vararg{Any,N}) where {N} = instantiate(getfield(n, :a), a...)
 
 """
+    _zmul(a, b)
+
+Zero-annihilating product of two first-order partials: zero if EITHER factor
+is zero, even when the other is Inf/NaN. Used in second-order cross terms,
+where a switched-off branch (zero partial, e.g. a `bselect` selector) must
+annihilate an unbounded partial from the dead subtree.
+"""
+@inline function _zmul(a, b)
+    p = a * b
+    return ifelse(iszero(a) | iszero(b), zero(p), p)
+end
+
+"""
     _amul(a, b)
 
 Adjoint-propagation product: `a * b`, except a zero adjoint `a` annihilates
