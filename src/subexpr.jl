@@ -301,37 +301,40 @@ _make_abuf(::Tuple, θ) = fill!(similar(θ), zero(eltype(θ)))
 # pairs are canonicalized as (var, -slot) so the build-time expansion can
 # classify entries by sign alone.
 
-# Recursion combos: subexpr leaf against interior nodes.
+# Recursion combos: subexpr leaf against interior nodes.  Partials here are
+# propagated with _amul for the same reason as in hessian.jl: a zero adjoint
+# (a switched-off bselect branch) must annihilate an Inf partial from the
+# dead subtree (e.g. an overflowed exp), or 0 * Inf = NaN poisons the seeds.
 @inline function hdrpass(t1::T1, t2::T2, comp, y1, y2, o2, cnt, adj) where {T1<:SecondAdjointNodeSubexpr,T2<:SecondAdjointNode1}
-    return hdrpass(t1, t2.inner, comp, y1, y2, o2, cnt, adj * t2.y)
+    return hdrpass(t1, t2.inner, comp, y1, y2, o2, cnt, _amul(adj, t2.y))
 end
 @inline function hdrpass(t1::SecondAdjointNodeSubexpr, t2::SecondAdjointNode1, comp::Nothing, y1, y2, o2, cnt, adj)  # despecialized
-    return hdrpass(t1, t2.inner, comp, y1, y2, o2, cnt, adj * t2.y)
+    return hdrpass(t1, t2.inner, comp, y1, y2, o2, cnt, _amul(adj, t2.y))
 end
 @inline function hdrpass(t1::T1, t2::T2, comp, y1, y2, o2, cnt, adj) where {T1<:SecondAdjointNode1,T2<:SecondAdjointNodeSubexpr}
-    return hdrpass(t1.inner, t2, comp, y1, y2, o2, cnt, adj * t1.y)
+    return hdrpass(t1.inner, t2, comp, y1, y2, o2, cnt, _amul(adj, t1.y))
 end
 @inline function hdrpass(t1::SecondAdjointNode1, t2::SecondAdjointNodeSubexpr, comp::Nothing, y1, y2, o2, cnt, adj)  # despecialized
-    return hdrpass(t1.inner, t2, comp, y1, y2, o2, cnt, adj * t1.y)
+    return hdrpass(t1.inner, t2, comp, y1, y2, o2, cnt, _amul(adj, t1.y))
 end
 @inline function hdrpass(t1::T1, t2::T2, comp, y1, y2, o2, cnt, adj) where {T1<:SecondAdjointNodeSubexpr,T2<:SecondAdjointNode2}
-    cnt = hdrpass(t1, t2.inner1, comp, y1, y2, o2, cnt, adj * t2.y1)
-    cnt = hdrpass(t1, t2.inner2, comp, y1, y2, o2, cnt, adj * t2.y2)
+    cnt = hdrpass(t1, t2.inner1, comp, y1, y2, o2, cnt, _amul(adj, t2.y1))
+    cnt = hdrpass(t1, t2.inner2, comp, y1, y2, o2, cnt, _amul(adj, t2.y2))
     return cnt
 end
 @inline function hdrpass(t1::SecondAdjointNodeSubexpr, t2::SecondAdjointNode2, comp::Nothing, y1, y2, o2, cnt, adj)  # despecialized
-    cnt = hdrpass(t1, t2.inner1, comp, y1, y2, o2, cnt, adj * t2.y1)
-    cnt = hdrpass(t1, t2.inner2, comp, y1, y2, o2, cnt, adj * t2.y2)
+    cnt = hdrpass(t1, t2.inner1, comp, y1, y2, o2, cnt, _amul(adj, t2.y1))
+    cnt = hdrpass(t1, t2.inner2, comp, y1, y2, o2, cnt, _amul(adj, t2.y2))
     return cnt
 end
 @inline function hdrpass(t1::T1, t2::T2, comp, y1, y2, o2, cnt, adj) where {T1<:SecondAdjointNode2,T2<:SecondAdjointNodeSubexpr}
-    cnt = hdrpass(t1.inner1, t2, comp, y1, y2, o2, cnt, adj * t1.y1)
-    cnt = hdrpass(t1.inner2, t2, comp, y1, y2, o2, cnt, adj * t1.y2)
+    cnt = hdrpass(t1.inner1, t2, comp, y1, y2, o2, cnt, _amul(adj, t1.y1))
+    cnt = hdrpass(t1.inner2, t2, comp, y1, y2, o2, cnt, _amul(adj, t1.y2))
     return cnt
 end
 @inline function hdrpass(t1::SecondAdjointNode2, t2::SecondAdjointNodeSubexpr, comp::Nothing, y1, y2, o2, cnt, adj)  # despecialized
-    cnt = hdrpass(t1.inner1, t2, comp, y1, y2, o2, cnt, adj * t1.y1)
-    cnt = hdrpass(t1.inner2, t2, comp, y1, y2, o2, cnt, adj * t1.y2)
+    cnt = hdrpass(t1.inner1, t2, comp, y1, y2, o2, cnt, _amul(adj, t1.y1))
+    cnt = hdrpass(t1.inner2, t2, comp, y1, y2, o2, cnt, _amul(adj, t1.y2))
     return cnt
 end
 
